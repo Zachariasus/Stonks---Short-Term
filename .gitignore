@@ -1,0 +1,23 @@
+# --- Secrets ---
+# Local API keys — never commit this file
+.env
+# ...but DO commit the placeholder template so others know what keys are needed
+!.env.example
+
+# --- Python ---
+# The virtual environment is rebuildable; no need to commit it
+venv/
+__pycache__/
+*.pyc
+
+# Packaging / build output and test caches
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# --- macOS ---
+.DS_Store
+
+# --- Local-only files (kept on my machine, not pushed to the repo) ---
+project_timeline.html
