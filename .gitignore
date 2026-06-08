@@ -21,3 +21,6 @@ build/
 
 # --- Local-only files (kept on my machine, not pushed to the repo) ---
 project_timeline.html
+
+# --- Local database (rebuildable from the fetchers; can grow large) ---
+*.db
