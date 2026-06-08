@@ -21,11 +21,12 @@ WHAT THIS MODULE PROVIDES
 The actual database file lives at data/stonks.db (see DB_PATH below).
 """
 
-from datetime import datetime, timezone
+from datetime import date
 from pathlib import Path
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -119,6 +120,25 @@ class EarningsHistory(Base):
     __table_args__ = (
         UniqueConstraint("ticker", "report_date", name="uix_earn_ticker_date"),
     )
+
+
+class TickerUniverse(Base):
+    """One row = one stock we track as part of our scan universe (the S&P 500).
+
+    `active` lets us keep a row for a stock that has LEFT the index (set False)
+    instead of deleting it — so we preserve history but stop scanning it.
+    """
+
+    __tablename__ = "ticker_universe"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String, unique=True, index=True, nullable=False)
+    company_name = Column(String)
+    sector = Column(String)            # GICS sector name, e.g. "Information Technology"
+    sector_etf = Column(String)        # matching sector ETF ticker, e.g. "XLK"
+    index_membership = Column(String)  # which index it came from, e.g. "SP500"
+    added_date = Column(Date, default=date.today)   # when we first added it
+    active = Column(Boolean, default=True)           # False once it leaves the index
 
 
 # ---------------------------------------------------------------------------

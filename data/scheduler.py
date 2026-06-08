@@ -10,10 +10,10 @@ WHAT THIS DOES
 
 HOW IT FITS IN
     This is the automation layer on top of the Phase 2 data pipeline. It reuses
-    the fetchers, the writers, and get_all_stored_tickers() so it always knows
-    what to refresh. When the full ticker universe (Step 6) is added, this picks
-    it up automatically — the universe stocks get stored, and from then on they
-    show up in get_all_stored_tickers().
+    the fetchers, the writers, and get_active_universe() so it always knows what
+    to refresh: the maintained S&P 500 universe plus the reference ETFs/benchmarks.
+    Adding/removing stocks from the universe automatically changes what gets
+    refreshed — no edits to this file needed.
 
 USAGE
     python data/scheduler.py --now        # run one refresh right now (testing)
@@ -30,14 +30,14 @@ import schedule
 # (and inline runs with PYTHONPATH=<project root>).
 try:
     from data.database import init_db
-    from data.db_utils import get_all_stored_tickers
+    from data.universe_stocks import get_active_universe
     from data.db_writer import save_fundamentals, save_price_bars
     from data.fetcher_fundamentals import get_fundamentals
     from data.fetcher_price import get_ohlcv_bulk
     from data.universe_etfs import ALL_REFERENCE_TICKERS
 except ImportError:  # pragma: no cover
     from database import init_db  # type: ignore
-    from db_utils import get_all_stored_tickers  # type: ignore
+    from universe_stocks import get_active_universe  # type: ignore
     from db_writer import save_fundamentals, save_price_bars  # type: ignore
     from fetcher_fundamentals import get_fundamentals  # type: ignore
     from fetcher_price import get_ohlcv_bulk  # type: ignore
@@ -67,11 +67,16 @@ def refresh_all_data() -> dict:
     # Make sure the tables exist (harmless if they already do).
     init_db()
 
-    # Discover what to refresh: everything already stored, PLUS the reference
-    # ETFs/benchmarks (in case the DB is fresh), de-duplicated.
-    stored = get_all_stored_tickers()
-    tickers = sorted(set(stored) | set(ALL_REFERENCE_TICKERS))
-    print(f"Tickers to refresh ({len(tickers)}): {tickers}\n")
+    # Phase 2 Step 6 change: the refresh list is now driven by the maintained
+    # S&P 500 ticker universe (get_active_universe) rather than just whatever
+    # happens to be stored already — so daily refreshes cover the whole universe.
+    # We still always include the reference ETFs/benchmarks. De-duplicated.
+    universe = get_active_universe()
+    tickers = sorted(set(universe) | set(ALL_REFERENCE_TICKERS))
+    print(
+        f"Tickers to refresh: {len(tickers)} "
+        f"({len(universe)} universe + {len(ALL_REFERENCE_TICKERS)} reference)\n"
+    )
 
     price_rows_inserted = 0
     price_rows_skipped = 0
