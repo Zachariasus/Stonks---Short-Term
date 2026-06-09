@@ -141,6 +141,32 @@ class TickerUniverse(Base):
     active = Column(Boolean, default=True)           # False once it leaves the index
 
 
+class EstimateSnapshot(Base):
+    """One row = a snapshot of a ticker's forward estimates on a given date.
+
+    Taken regularly over time, these snapshots let us measure the DIRECTION of
+    analyst revisions — are forward EPS estimates drifting up (tailwind) or down
+    (headwind) over the weeks/months we hold a position?
+    """
+
+    __tablename__ = "estimate_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String, index=True, nullable=False)
+    snapshot_date = Column(Date, index=True, nullable=False)
+    forward_eps = Column(Float, nullable=True)        # consensus forward EPS at this date
+    forward_pe = Column(Float, nullable=True)         # forward P/E at this date
+    revenue_estimate = Column(Float, nullable=True)   # forward revenue estimate, if available
+    source = Column(String)                           # "yfinance" or "alphavantage"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "ticker", "snapshot_date", "source",
+            name="uix_estsnap_ticker_date_source",
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Engine / session helpers.
 # We cache a single engine (and session factory) at module level so the whole
