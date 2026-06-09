@@ -167,6 +167,34 @@ class EstimateSnapshot(Base):
     )
 
 
+class MarginSnapshot(Base):
+    """One row = a ticker's margins for one reporting period (quarter or year).
+
+    Stored over successive quarters, these let us detect the MARGIN CYCLE — is
+    the business gaining operating leverage (margins expanding) or losing it
+    (compressing)?
+    """
+
+    __tablename__ = "margin_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String, index=True, nullable=False)
+    report_date = Column(Date, index=True, nullable=False)
+    period_type = Column(String)                       # "quarterly" or "annual"
+    gross_margin = Column(Float, nullable=True)        # gross_profit / revenue (fraction)
+    operating_margin = Column(Float, nullable=True)    # operating_income / revenue (fraction)
+    net_margin = Column(Float, nullable=True)          # net_income / revenue (fraction)
+    revenue = Column(Float, nullable=True)             # total revenue ($)
+    operating_income = Column(Float, nullable=True)    # operating income ($)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "ticker", "report_date", "period_type",
+            name="uix_margin_ticker_date_period",
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Engine / session helpers.
 # We cache a single engine (and session factory) at module level so the whole
