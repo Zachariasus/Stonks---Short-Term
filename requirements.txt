@@ -11,6 +11,7 @@ curl_cffi==0.15.0
 distro==1.9.0
 docstring_parser==0.18.0
 fastapi==0.136.3
+fredapi==0.5.2
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
