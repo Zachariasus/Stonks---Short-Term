@@ -4,11 +4,19 @@ analysis/relative_strength.py
 Relative Strength (RS) — is this stock LEADING or LAGGING the market & its sector?
 
 WHAT "RELATIVE STRENGTH" MEANS HERE
-    RS = a stock's price performance compared to a benchmark over a period.
-    RS ratio = (stock's % return) / (benchmark's % return). Above 1.0 = the stock
-    outperformed; below 1.0 = it lagged. This is NOT the RSI oscillator — RSI is a
-    bounded 0–100 overbought/oversold momentum gauge and is a completely different
-    tool. Here, "relative strength" purely means out/under-performance vs a peer.
+    RS = a stock's price performance MINUS a benchmark's, over a period:
+        RS = (stock % return) − (benchmark % return)
+    The result is in percentage points. Positive = the stock outperformed;
+    negative = it lagged. This is NOT the RSI oscillator (a bounded 0–100
+    overbought/oversold gauge) — completely different tool.
+
+    WHY A DIFFERENCE, NOT A RATIO? An earlier version divided the two returns,
+    but that's fragile: dividing by a small or NEGATIVE benchmark return flips
+    the sign and makes outperformers look weak (and vice versa). The difference
+    is always stable — no division, no sign flips:
+        Stock +15%, SPY +10%  → RS = +5.0  (outperforming)
+        Stock  −5%, SPY −10%  → RS = +5.0  (fell less → still outperforming)
+        Stock  +3%, SPY +10%  → RS = −7.0  (lagging)
 
 HOW IT FITS IN
     Third pillar of the trend engine (after moving averages and stage analysis).
@@ -33,16 +41,16 @@ except ImportError:  # pragma: no cover
     from data.database import TickerUniverse, get_session
 
 
-def calculate_rs_ratio(
+def calculate_rs_diff(
     ticker: str,
     benchmark_ticker: str,
     months: int,
     skip_recent_month: bool = True,
 ):
-    """Return the RS ratio of `ticker` vs `benchmark_ticker` over `months`.
+    """Return the RS DIFFERENCE of `ticker` vs `benchmark_ticker` over `months`.
 
-    RS ratio = stock % return / benchmark % return over the same window.
-    > 1.0 means the stock outperformed the benchmark.
+    RS difference = stock % return − benchmark % return, in percentage points.
+    Positive means the stock outperformed the benchmark over the window.
 
     WHY SKIP THE MOST RECENT MONTH (skip_recent_month=True)?
         Very short-term price moves tend to mean-revert — this month's hottest
@@ -52,8 +60,8 @@ def calculate_rs_ratio(
         momentum construction used in academic studies).
 
     Returns:
-        The RS ratio (float, rounded to 2dp), or None (with a warning) if either
-        ticker lacks enough history.
+        The RS difference (float, percentage points, rounded to 2dp), or None
+        (with a warning) if either ticker lacks enough history.
     """
     lookback_days = months * TRADING_DAYS_PER_MONTH
     offset = TRADING_DAYS_PER_MONTH if skip_recent_month else 0
@@ -66,20 +74,20 @@ def calculate_rs_ratio(
 
     if stock_df is None or bench_df is None:
         print(
-            f"⚠️  calculate_rs_ratio: missing price data "
+            f"⚠️  calculate_rs_diff: missing price data "
             f"({ticker} or {benchmark_ticker})."
         )
         return None
 
     if len(stock_df) < needed or len(bench_df) < needed:
         print(
-            f"⚠️  calculate_rs_ratio: not enough history for {months}-month RS "
+            f"⚠️  calculate_rs_diff: not enough history for {months}-month RS "
             f"of {ticker} vs {benchmark_ticker}."
         )
         return None
 
-    def period_return(df):
-        """Fractional return between the window's start and end bars."""
+    def period_return_pct(df):
+        """Percentage return between the window's start and end bars."""
         df = df.sort_values("Date").reset_index(drop=True)
         # end is `offset` bars before the latest; start is `lookback_days` before end.
         end_idx = len(df) - 1 - offset
@@ -90,24 +98,17 @@ def calculate_rs_ratio(
         end_close = float(df["Close"].iloc[end_idx])
         if start_close == 0:
             return None
-        return (end_close - start_close) / start_close
+        return (end_close - start_close) / start_close * 100  # percent
 
-    stock_ret = period_return(stock_df)
-    bench_ret = period_return(bench_df)
+    stock_ret = period_return_pct(stock_df)
+    bench_ret = period_return_pct(bench_df)
 
     if stock_ret is None or bench_ret is None:
-        print(f"⚠️  calculate_rs_ratio: could not compute returns for {ticker}.")
+        print(f"⚠️  calculate_rs_diff: could not compute returns for {ticker}.")
         return None
 
-    # Benchmark return of ~0 makes the ratio meaningless / explode — guard it.
-    if bench_ret == 0:
-        print(
-            f"⚠️  calculate_rs_ratio: benchmark {benchmark_ticker} had ~0 return "
-            f"over {months}m; RS ratio undefined."
-        )
-        return None
-
-    return round(stock_ret / bench_ret, 2)
+    # The whole point of the difference: no division, so no sign-flip / blow-up.
+    return round(stock_ret - bench_ret, 2)
 
 
 def _lookup_sector_etf(ticker: str) -> str:
@@ -131,7 +132,10 @@ def _lookup_sector_etf(ticker: str) -> str:
 
 
 def _composite(rs_3m, rs_6m, rs_12m):
-    """Weighted-average composite (heavier weight on the longer, more durable RS)."""
+    """Weighted-average composite of the RS differences (heavier on longer terms).
+
+    Result is in percentage points, same units as the inputs.
+    """
     if rs_3m is None or rs_6m is None or rs_12m is None:
         return None
     return round(rs_3m * 0.25 + rs_6m * 0.35 + rs_12m * 0.40, 2)
@@ -140,21 +144,22 @@ def _composite(rs_3m, rs_6m, rs_12m):
 def get_rs_profile(ticker: str) -> dict:
     """Build a full RS profile vs SPY and vs the stock's sector ETF.
 
-    Returns a dict with the 3/6/12-month RS ratios and composite scores against
-    both SPY and the sector ETF, plus which sector ETF was used.
+    Returns a dict with the 3/6/12-month RS differences and composite scores
+    against both SPY and the sector ETF, plus which sector ETF was used.
+    (Values are percentage-point spreads; positive = outperforming.)
     """
     ticker = ticker.strip().upper()
     sector_etf = _lookup_sector_etf(ticker)
 
     # RS vs the broad market.
-    rs_3m_vs_spy = calculate_rs_ratio(ticker, "SPY", 3)
-    rs_6m_vs_spy = calculate_rs_ratio(ticker, "SPY", 6)
-    rs_12m_vs_spy = calculate_rs_ratio(ticker, "SPY", 12)
+    rs_3m_vs_spy = calculate_rs_diff(ticker, "SPY", 3)
+    rs_6m_vs_spy = calculate_rs_diff(ticker, "SPY", 6)
+    rs_12m_vs_spy = calculate_rs_diff(ticker, "SPY", 12)
 
     # RS vs the stock's own sector.
-    rs_3m_vs_sector = calculate_rs_ratio(ticker, sector_etf, 3)
-    rs_6m_vs_sector = calculate_rs_ratio(ticker, sector_etf, 6)
-    rs_12m_vs_sector = calculate_rs_ratio(ticker, sector_etf, 12)
+    rs_3m_vs_sector = calculate_rs_diff(ticker, sector_etf, 3)
+    rs_6m_vs_sector = calculate_rs_diff(ticker, sector_etf, 6)
+    rs_12m_vs_sector = calculate_rs_diff(ticker, sector_etf, 12)
 
     return {
         "rs_3m_vs_spy": rs_3m_vs_spy,
@@ -172,30 +177,31 @@ def get_rs_profile(ticker: str) -> dict:
 
 
 def get_rs_rating(composite_score) -> str:
-    """Turn a composite RS score into a plain label for trade selection.
+    """Turn a composite RS difference (percentage points) into a plain label.
 
-    Strong Leader (>=1.15): meaningfully outpacing — top-tier LONG candidates.
-    Leader        (>=1.05): outperforming — favorable for longs.
-    In Line       (>=0.95): roughly matching the benchmark — neutral, no edge.
-    Laggard       (>=0.85): underperforming — avoid for longs; possible short.
-    Weak Laggard  (< 0.85): badly trailing — strong SHORT candidate / avoid long.
+    Thresholds are now in percentage-point spreads vs the benchmark:
+        Strong Leader (>= +8.0): outpacing by a wide margin — top-tier LONGs.
+        Leader        (>= +3.0): clearly outperforming — favorable for longs.
+        In Line       (>= -3.0): roughly matching the benchmark — neutral.
+        Laggard       (>= -8.0): underperforming — avoid longs; possible short.
+        Weak Laggard  (<  -8.0): badly trailing — strong SHORT candidate.
     """
     if composite_score is None:
         return "N/A"
-    if composite_score >= 1.15:
+    if composite_score >= 8.0:
         return "Strong Leader"
-    if composite_score >= 1.05:
+    if composite_score >= 3.0:
         return "Leader"
-    if composite_score >= 0.95:
+    if composite_score >= -3.0:
         return "In Line"
-    if composite_score >= 0.85:
+    if composite_score >= -8.0:
         return "Laggard"
     return "Weak Laggard"
 
 
 def _fmt(value) -> str:
-    """Format an RS value to 2dp, or 'N/A' if missing."""
-    return f"{value:.2f}" if value is not None else "N/A"
+    """Format an RS value with a leading sign to 1dp, or 'N/A' if missing."""
+    return f"{value:+.1f}" if value is not None else "N/A"
 
 
 def get_rs_summary(ticker: str) -> dict:
@@ -207,19 +213,25 @@ def get_rs_summary(ticker: str) -> dict:
     sector_rating = get_rs_rating(profile["composite_vs_sector"])
     sector_etf = profile["sector_etf_used"]
 
+    # Composite carries a "pp" (percentage points) unit label for clarity.
+    spy_comp = profile["composite_vs_spy"]
+    sector_comp = profile["composite_vs_sector"]
+    spy_comp_str = f"{spy_comp:+.1f}pp" if spy_comp is not None else "N/A"
+    sector_comp_str = f"{sector_comp:+.1f}pp" if sector_comp is not None else "N/A"
+
     print(
         f"{ticker} | RS vs SPY: "
         f"3m: {_fmt(profile['rs_3m_vs_spy'])} | "
         f"6m: {_fmt(profile['rs_6m_vs_spy'])} | "
         f"12m: {_fmt(profile['rs_12m_vs_spy'])} | "
-        f"Composite: {_fmt(profile['composite_vs_spy'])} → {spy_rating}"
+        f"Composite: {spy_comp_str} → {spy_rating}"
     )
     print(
         f"{ticker} | RS vs {sector_etf}: "
         f"3m: {_fmt(profile['rs_3m_vs_sector'])} | "
         f"6m: {_fmt(profile['rs_6m_vs_sector'])} | "
         f"12m: {_fmt(profile['rs_12m_vs_sector'])} | "
-        f"Composite: {_fmt(profile['composite_vs_sector'])} → {sector_rating}"
+        f"Composite: {sector_comp_str} → {sector_rating}"
     )
 
     return profile
@@ -230,10 +242,10 @@ if __name__ == "__main__":
     print("--- AAPL ---")
     get_rs_summary("AAPL")
 
-    # SPY: sanity check — SPY vs itself must be 1.0 across every window.
-    print("\n--- SPY (sanity: should be 1.00 everywhere) ---")
+    # SPY: sanity check — SPY vs itself must be ~0.0 across every window.
+    print("\n--- SPY (sanity: should be ~0.0 everywhere) ---")
     get_rs_summary("SPY")
 
-    # XLF: the Stage 4 (declining) sector from last step — expect weak RS.
-    print("\n--- XLF (Stage 4 sector: expect weak RS) ---")
+    # XLF: the Stage 4 (declining) sector from last step — expect negative RS.
+    print("\n--- XLF (Stage 4 sector: expect negative RS) ---")
     get_rs_summary("XLF")
