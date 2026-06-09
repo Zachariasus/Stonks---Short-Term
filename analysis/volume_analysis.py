@@ -7,14 +7,21 @@ WHY VOLUME MATTERS
     Price tells you WHAT happened; volume tells you how much CONVICTION was
     behind it. A price rise on heavy volume means real buyers are committing
     capital (accumulation); the same rise on thin volume is suspect and prone to
-    reversal. By comparing volume on up days vs down days — and tracking
-    On-Balance Volume — we can see whether big money is quietly accumulating or
-    distributing a stock, something the price line alone can't reveal.
+    reversal. By comparing volume on up days vs down days — and tracking the
+    DIRECTION of On-Balance Volume — we can see whether big money is quietly
+    accumulating or distributing a stock, something price alone can't reveal.
 
 HOW IT FITS IN
     Fourth pillar of the trend engine (after MAs, stage, and relative strength).
     A Stage 2 stock with accumulation behind it is a far stronger long than one
     drifting up on no volume. Reads price+volume from the database only.
+
+NOTE ON OBV
+    OBV is a signed CUMULATIVE total that can pass through zero, so any metric
+    that DIVIDES by an OBV value (a % slope, OBV-vs-its-MA, etc.) is unstable and
+    can explode. We therefore use only OBV's DIRECTION (did it finish higher or
+    lower over the lookback?) — a pure comparison that can never blow up. The
+    up/down volume ratio supplies the magnitude.
 """
 
 import pandas as pd
@@ -61,10 +68,9 @@ def calculate_volume_metrics(ticker: str, days: int = 100):
 
     # --- On-Balance Volume (OBV) ---
     # Created by Joe Granville (1963). OBV is a running total that ADDS the day's
-    # volume on up days and SUBTRACTS it on down days. The idea: volume precedes
-    # price, so a rising OBV means buying pressure is accumulating (bullish) even
-    # if price is flat, and a falling OBV warns of distribution. We care about
-    # OBV's DIRECTION/slope, not its absolute level.
+    # volume on up days and SUBTRACTS it on down days. Rising OBV = buying
+    # pressure accumulating; falling OBV = distribution. We use only its
+    # DIRECTION (see the module note) — never a ratio of its level.
     signed_volume = df["up_volume"] - df["down_volume"]  # +V on up days, −V on down
     signed_volume.iloc[0] = 0  # first row has no prior close → contributes 0
     df["obv"] = signed_volume.cumsum()
@@ -82,7 +88,7 @@ def get_volume_profile(ticker: str, lookback_days: int = 50):
     """Summarize accumulation/distribution behavior over the recent lookback.
 
     Returns:
-        {up_down_vol_ratio, obv_slope_pct, vol_trend, avg_vol_ratio,
+        {up_down_vol_ratio, obv_direction, vol_trend, avg_vol_ratio,
          accumulation_label, lookback_days}, or None if data is insufficient.
     """
     # Load enough history that the 50-day volume SMA is valid across the lookback.
@@ -103,14 +109,13 @@ def get_volume_profile(ticker: str, lookback_days: int = 50):
         # No down-volume at all in the window → effectively pure accumulation.
         up_down_vol_ratio = 99.0
 
-    # --- OBV slope: % change in OBV across the lookback ---
-    # Positive = OBV trending up (accumulation); negative = down (distribution).
+    # --- OBV direction over the lookback ---
+    # Pure comparison: did OBV finish higher than it started? No division, so it
+    # can never blow up (unlike a % slope or OBV-vs-MA, which fail when OBV is
+    # near zero). This is the sign we actually need for the label.
     obv_start = float(recent["obv"].iloc[0])
-    obv_now = float(recent["obv"].iloc[-1])
-    if obv_start != 0:
-        obv_slope_pct = round((obv_now - obv_start) / abs(obv_start) * 100, 2)
-    else:
-        obv_slope_pct = 0.0  # can't compute a % off a zero base
+    obv_end = float(recent["obv"].iloc[-1])
+    obv_direction = "up" if obv_end > obv_start else "down"
 
     # --- Volume trend: is recent volume heavier than the longer-term average? ---
     v20 = recent["vol_sma_20"].iloc[-1]
@@ -128,20 +133,21 @@ def get_volume_profile(ticker: str, lookback_days: int = 50):
     avg_vol_ratio = round(float(recent["vol_ratio"].mean()), 2)
 
     # --- Accumulation / distribution label (checked in priority order) ---
-    if up_down_vol_ratio >= 1.2 and obv_slope_pct > 0:
+    # Combines the up/down volume ratio (magnitude) with OBV direction (the sign).
+    if up_down_vol_ratio >= 1.2 and obv_direction == "up":
         accumulation_label = "Accumulation"
-    elif up_down_vol_ratio >= 1.0 and obv_slope_pct > 0:
+    elif up_down_vol_ratio >= 1.0 and obv_direction == "up":
         accumulation_label = "Mild Accumulation"
-    elif up_down_vol_ratio <= 0.8 and obv_slope_pct < 0:
+    elif up_down_vol_ratio <= 0.8 and obv_direction == "down":
         accumulation_label = "Distribution"
-    elif up_down_vol_ratio <= 1.0 and obv_slope_pct < 0:
+    elif up_down_vol_ratio <= 1.0 and obv_direction == "down":
         accumulation_label = "Mild Distribution"
     else:
         accumulation_label = "Neutral"
 
     return {
         "up_down_vol_ratio": up_down_vol_ratio,
-        "obv_slope_pct": obv_slope_pct,
+        "obv_direction": obv_direction,
         "vol_trend": vol_trend,
         "avg_vol_ratio": avg_vol_ratio,
         "accumulation_label": accumulation_label,
@@ -159,7 +165,7 @@ def get_volume_summary(ticker: str):
     print(f"{ticker} | Volume: {profile['accumulation_label']}")
     print(
         f"Up/Down vol ratio: {profile['up_down_vol_ratio']:.2f} | "
-        f"OBV slope ({profile['lookback_days']}d): {profile['obv_slope_pct']:+.1f}%"
+        f"OBV direction: {profile['obv_direction'].capitalize()}"
     )
     print(
         f"Volume trend: {profile['vol_trend']} | "
