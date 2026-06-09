@@ -29,10 +29,11 @@ try:
     from analysis.margin_trends import analyze_margin_trend
     from analysis.price_target import calculate_price_target, calculate_reward_risk
     from analysis.relative_strength import get_rs_profile, get_rs_rating
-    from analysis.sector_ranker import get_sector_rank, rank_sectors
+    from analysis.sector_ranker import rank_sectors
     from analysis.stage_classifier import classify_stage
     from analysis.valuation import assess_valuation_room
     from analysis.volume_analysis import get_volume_profile
+    from data.database import TickerUniverse, get_session
 except ImportError:  # pragma: no cover
     import sys
     from pathlib import Path
@@ -45,10 +46,11 @@ except ImportError:  # pragma: no cover
     from analysis.margin_trends import analyze_margin_trend
     from analysis.price_target import calculate_price_target, calculate_reward_risk
     from analysis.relative_strength import get_rs_profile, get_rs_rating
-    from analysis.sector_ranker import get_sector_rank, rank_sectors
+    from analysis.sector_ranker import rank_sectors
     from analysis.stage_classifier import classify_stage
     from analysis.valuation import assess_valuation_room
     from analysis.volume_analysis import get_volume_profile
+    from data.database import TickerUniverse, get_session
 
 # Max points per engine (for the "engines firing" 60% threshold).
 ENGINE_MAX = {"e1": 35, "e2": 25, "e3": 25, "e4": 15}
@@ -68,14 +70,35 @@ def _get_macro_phase():
     return _macro_cache
 
 
-def _resolve_sector_entry(ticker):
-    """Sector-rank entry for a stock (via its sector ETF) OR for a sector ETF itself."""
-    entry = get_sector_rank(ticker)
-    if entry is not None:
-        return entry
-    # The ticker might BE a sector ETF (e.g. XLF) — find it in the rankings.
-    for sector in rank_sectors():
-        if sector["etf_ticker"] == ticker.strip().upper():
+def _lookup_sector_etf(ticker):
+    """The stock's sector ETF from TickerUniverse (single-row DB read), or None."""
+    session = get_session()
+    try:
+        row = (
+            session.query(TickerUniverse)
+            .filter(TickerUniverse.ticker == ticker.strip().upper())
+            .first()
+        )
+        return row.sector_etf if row else None
+    finally:
+        session.close()
+
+
+def _resolve_sector_entry(ticker, sector_rankings):
+    """Sector-rank entry for a stock (via its sector ETF) OR for a sector ETF itself.
+
+    Uses the PRE-COMPUTED sector_rankings list (passed in by the screener) so we
+    never recompute the 11-sector ranking per ticker.
+    """
+    sector_etf = _lookup_sector_etf(ticker)
+    if sector_etf:
+        for sector in sector_rankings:
+            if sector["etf_ticker"] == sector_etf:
+                return sector
+    # The ticker might BE a sector ETF (e.g. XLF) — find it directly.
+    upper = ticker.strip().upper()
+    for sector in sector_rankings:
+        if sector["etf_ticker"] == upper:
             return sector
     return None
 
@@ -104,9 +127,24 @@ def _rr_points(rr):
     return 0
 
 
-def score_stock(ticker: str) -> dict:
-    """Score one ticker 0–100 across all four engines. DB reads only."""
+def score_stock(ticker: str, market_context=None) -> dict:
+    """Score one ticker 0–100 across all four engines. DB reads only.
+
+    market_context (optional): {"sector_rankings": [...], "cycle_summary": {...}}
+    pre-computed ONCE by the screener so market-wide data isn't recomputed per
+    ticker. If None, cached internal versions are used — single-ticker calls work
+    unchanged (non-breaking).
+    """
     ticker = ticker.strip().upper()
+
+    # Resolve market-wide context: use what the screener passed in, else compute
+    # (cached) versions here so a standalone score_stock(ticker) still works.
+    if market_context is not None:
+        sector_rankings = market_context.get("sector_rankings") or rank_sectors()
+        cycle_dict = market_context.get("cycle_summary") or _get_macro_phase()
+    else:
+        sector_rankings = rank_sectors()      # cached internally
+        cycle_dict = _get_macro_phase()        # cached, non-printing
 
     # ====================================================================
     # GATHER SIGNALS — each engine guarded; safe neutral defaults on failure.
@@ -176,16 +214,15 @@ def score_stock(ticker: str) -> dict:
     sector_rotation_label = "N/A"
     sector_etf = None
     try:
-        se = _resolve_sector_entry(ticker)
+        se = _resolve_sector_entry(ticker, sector_rankings)
         if se:
             sector_rotation_label = se["rotation_label"]
             sector_etf = se["etf_ticker"]
     except Exception:  # noqa: BLE001
         pass
 
-    macro = _get_macro_phase()
-    macro_phase = macro.get("phase", "Unknown")
-    favored = macro.get("favored_sectors", [])
+    macro_phase = cycle_dict.get("phase", "Unknown")
+    favored = cycle_dict.get("favored_sectors", [])
     if macro_phase == "Unknown":
         macro_fit = "Unknown"
     elif sector_etf and any(f.startswith(sector_etf) for f in favored):
@@ -337,7 +374,8 @@ def score_stock(ticker: str) -> dict:
         "entry_triggered": entry_triggered,
         "revision_direction": revision_direction, "margin_direction": margin_signal,
         "beat_pattern": beat_pattern,
-        "sector_rotation_label": sector_rotation_label, "macro_fit": macro_fit,
+        "sector_rotation_label": sector_rotation_label, "sector_etf": sector_etf,
+        "macro_fit": macro_fit,
         "valuation_room": valuation_room, "rr_ratio": rr_ratio,
         "engines_firing": engines_firing, "confidence_label": confidence,
         "engine_1_detail": d1, "engine_2_detail": d2,
