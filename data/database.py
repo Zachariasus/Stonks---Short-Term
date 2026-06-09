@@ -221,6 +221,44 @@ class EarningsCalendar(Base):
     )
 
 
+class Flag(Base):
+    """One row = the system flagged a setup for a ticker on a given day/direction.
+
+    A flag is the system's NOTATION that a setup met the confluence threshold at
+    flagging time (with a timestamp) — not a trade recommendation. Rich enough to
+    render a full setup card, and updatable as the trade evolves (status, close).
+    """
+
+    __tablename__ = "flags"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String, index=True, nullable=False)
+    flagged_date = Column(Date, index=True, default=date.today)
+    score = Column(Integer)
+    confidence_label = Column(String)        # "High" / "Medium" / "Low"
+    direction = Column(String)               # "Long" / "Short"
+    stage = Column(String)                   # e.g. "Stage 2 — Advancing"
+    rs_label = Column(String)                # e.g. "Strong Leader"
+    sector_etf = Column(String)
+    sector_rotation_label = Column(String)   # "Leading" / "Neutral" / "Lagging"
+    entry_price = Column(Float)              # close at time of flagging
+    target_price = Column(Float, nullable=True)
+    suggested_stop = Column(Float, nullable=True)  # entry × 0.92 placeholder
+    rr_ratio = Column(Float, nullable=True)
+    earnings_flag = Column(String, nullable=True)
+    days_to_earnings = Column(Integer, nullable=True)
+    status = Column(String, default="Active")      # "Active" / "Watching" / "Closed"
+    close_date = Column(Date, nullable=True)
+    close_reason = Column(String, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "ticker", "flagged_date", "direction",
+            name="uix_flag_ticker_date_dir",
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Engine / session helpers.
 # We cache a single engine (and session factory) at module level so the whole
@@ -255,7 +293,9 @@ def get_session():
     global _SessionFactory
     engine = get_engine()
     if _SessionFactory is None:
-        _SessionFactory = sessionmaker(bind=engine, future=True)
+        # expire_on_commit=False keeps ORM objects (e.g. Flag) usable after the
+        # session is committed/closed — this layer returns ORM objects to callers.
+        _SessionFactory = sessionmaker(bind=engine, future=True, expire_on_commit=False)
     return _SessionFactory()
 
 
