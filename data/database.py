@@ -195,6 +195,32 @@ class MarginSnapshot(Base):
     )
 
 
+class EarningsCalendar(Base):
+    """One row = a ticker's next expected earnings date (plus consensus estimates).
+
+    Used to know when a report is coming so we can flag positions approaching
+    earnings and warn when an entry fires within days of a report.
+    """
+
+    __tablename__ = "earnings_calendar"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String, index=True, nullable=False)
+    next_earnings_date = Column(Date, index=True, nullable=False)
+    eps_estimate_avg = Column(Float, nullable=True)
+    eps_estimate_high = Column(Float, nullable=True)
+    eps_estimate_low = Column(Float, nullable=True)
+    revenue_estimate_avg = Column(Float, nullable=True)
+    last_updated = Column(Date, default=date.today)   # when we last refreshed it
+
+    __table_args__ = (
+        UniqueConstraint(
+            "ticker", "next_earnings_date",
+            name="uix_earncal_ticker_date",
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Engine / session helpers.
 # We cache a single engine (and session factory) at module level so the whole

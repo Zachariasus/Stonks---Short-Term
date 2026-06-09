@@ -4,8 +4,9 @@ data/scheduler.py
 Daily auto-refresh scheduler — keeps the database current without manual runs.
 
 WHAT THIS DOES
-    Once a day, after the US market closes, it re-fetches price and fundamental
-    data for every ticker we track and saves it. Because saves are
+    Once a day, after the US market closes, it re-fetches and stores everything
+    we track for every ticker: prices, fundamentals, earnings history, forward-
+    estimate snapshots, and the next earnings date. Because saves are
     duplicate-safe, a refresh only adds genuinely new rows (e.g. today's bar).
 
 HOW IT FITS IN
@@ -29,19 +30,37 @@ import schedule
 # Support both `python -m data.scheduler` and `python data/scheduler.py`
 # (and inline runs with PYTHONPATH=<project root>).
 try:
+    from analysis.earnings_calendar import fetch_and_store_earnings_date
+    from analysis.estimate_revisions import save_estimate_snapshot
     from data.database import init_db
-    from data.universe_stocks import get_active_universe
-    from data.db_writer import save_fundamentals, save_price_bars
-    from data.fetcher_fundamentals import get_fundamentals
+    from data.db_writer import (
+        save_earnings_history,
+        save_fundamentals,
+        save_price_bars,
+    )
+    from data.fetcher_fundamentals import get_earnings_history, get_fundamentals
     from data.fetcher_price import get_ohlcv_bulk
     from data.universe_etfs import ALL_REFERENCE_TICKERS
+    from data.universe_stocks import get_active_universe
 except ImportError:  # pragma: no cover
-    from database import init_db  # type: ignore
-    from universe_stocks import get_active_universe  # type: ignore
-    from db_writer import save_fundamentals, save_price_bars  # type: ignore
-    from fetcher_fundamentals import get_fundamentals  # type: ignore
-    from fetcher_price import get_ohlcv_bulk  # type: ignore
-    from universe_etfs import ALL_REFERENCE_TICKERS  # type: ignore
+    # Running as a bare script: put the project root on the path, then import
+    # in package form so both data.* and analysis.* resolve from the root.
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from analysis.earnings_calendar import fetch_and_store_earnings_date
+    from analysis.estimate_revisions import save_estimate_snapshot
+    from data.database import init_db
+    from data.db_writer import (
+        save_earnings_history,
+        save_fundamentals,
+        save_price_bars,
+    )
+    from data.fetcher_fundamentals import get_earnings_history, get_fundamentals
+    from data.fetcher_price import get_ohlcv_bulk
+    from data.universe_etfs import ALL_REFERENCE_TICKERS
+    from data.universe_stocks import get_active_universe
 
 # How far back each refresh re-fetches. 2y matches the reference data so the
 # whole table stays on a consistent 2-year window for relative-strength math.
@@ -103,15 +122,40 @@ def refresh_all_data() -> dict:
         except Exception as err:  # noqa: BLE001 - never let one ticker kill the run
             print(f"⚠️  Price save failed for {ticker}: {err}")
 
-    # ---- Fundamentals: fetched one at a time (no bulk endpoint) ----
+    # ---- Fundamentals + earnings history + estimate snapshots + earnings dates ----
+    # All fetched one ticker at a time (no bulk endpoints). Each persistence step
+    # gets its OWN try/except so one failure can't abort the others or the loop.
+    earnings_dates_updated = 0
     print()  # spacer
     for ticker in tickers:
+        # 1) Fundamentals snapshot (valuation / margins / growth)
         try:
             fundamentals = get_fundamentals(ticker)
             result = save_fundamentals(ticker, fundamentals)
             fundamentals_saved += result["inserted"]
         except Exception as err:  # noqa: BLE001
             print(f"⚠️  Fundamentals refresh failed for {ticker}: {err}")
+
+        # 2) Earnings history (estimate vs actual) → feeds the beat/raise tracker
+        try:
+            earnings_df = get_earnings_history(ticker)
+            if earnings_df is not None:
+                save_earnings_history(ticker, earnings_df)
+        except Exception as err:  # noqa: BLE001
+            print(f"⚠️  Earnings-history refresh failed for {ticker}: {err}")
+
+        # 3) Forward-estimate snapshot → feeds the revision tracker (drift over time)
+        try:
+            save_estimate_snapshot(ticker)
+        except Exception as err:  # noqa: BLE001
+            print(f"⚠️  Estimate-snapshot refresh failed for {ticker}: {err}")
+
+        # 4) Next earnings date → feeds the earnings calendar
+        try:
+            if fetch_and_store_earnings_date(ticker) is not None:
+                earnings_dates_updated += 1
+        except Exception as err:  # noqa: BLE001
+            print(f"⚠️  Earnings-date refresh failed for {ticker}: {err}")
 
     # ---- Timestamped summary ----
     finished = datetime.now()
@@ -121,6 +165,7 @@ def refresh_all_data() -> dict:
     print(f"  Price rows inserted          : {price_rows_inserted}")
     print(f"  Price rows skipped (existing): {price_rows_skipped}")
     print(f"  Fundamentals snapshots saved : {fundamentals_saved}")
+    print(f"  Earnings dates updated       : {earnings_dates_updated}")
 
     return {
         "tickers": len(tickers),
@@ -128,6 +173,7 @@ def refresh_all_data() -> dict:
         "price_rows_inserted": price_rows_inserted,
         "price_rows_skipped": price_rows_skipped,
         "fundamentals_saved": fundamentals_saved,
+        "earnings_dates_updated": earnings_dates_updated,
     }
 
 
