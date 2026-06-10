@@ -259,6 +259,29 @@ class Flag(Base):
     )
 
 
+class NewsArticle(Base):
+    """One row = one news article relevant to a ticker.
+
+    Deduplicated by `url` (the unique key): NewsAPI commonly returns the same
+    story across multiple fetches, so the URL — not the headline — is what we key
+    on. `sentiment_label` and `relevance_score` are populated later (Step 3); they
+    stay null until then.
+    """
+
+    __tablename__ = "news_articles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String, index=True, nullable=False)
+    url = Column(String, unique=True, nullable=False)        # dedup key
+    title = Column(String)
+    source = Column(String)                                  # e.g. "Reuters"
+    published_at = Column(DateTime, index=True)              # when the story ran
+    content_snippet = Column(String, nullable=True)          # first ~200 chars
+    sentiment_label = Column(String, nullable=True)          # filled in Step 3
+    relevance_score = Column(Float, nullable=True)           # filled in Step 3
+    fetched_at = Column(DateTime, server_default=func.now())  # when we stored it
+
+
 # ---------------------------------------------------------------------------
 # Engine / session helpers.
 # We cache a single engine (and session factory) at module level so the whole
