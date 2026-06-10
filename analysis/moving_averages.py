@@ -146,6 +146,48 @@ def are_mas_stacked_bullish(ticker: str) -> bool:
     return last["Close"] > last["sma_50"] > last["sma_100"] > last["sma_200"]
 
 
+def calculate_atr(ticker: str, period: int = 14, days: int = 100):
+    """Average True Range (a volatility measure) for a ticker.
+
+    Returns (atr, weekly_atr) where weekly_atr ≈ atr × √5 (a daily→weekly scaling
+    approximation), or (None, None) if there isn't enough data.
+
+    Our price_bars table DOES store High & Low (get_price_bars returns them), so
+    we use the proper True Range:
+        TR = max(High − Low, |High − PrevClose|, |Low − PrevClose|)
+    If High/Low were ever missing/NaN we fall back to a simplified
+    |Close − PrevClose| proxy (flagged here — a future step could ensure H/L are
+    always populated, or use a longer window).
+    """
+    df = get_price_bars(ticker, days=days)
+    if df is None or len(df) < period + 1:
+        return (None, None)
+
+    df = df.sort_values("Date").reset_index(drop=True)
+    prev_close = df["Close"].shift(1)
+
+    have_hl = (
+        "High" in df.columns and "Low" in df.columns
+        and df["High"].notna().any() and df["Low"].notna().any()
+    )
+    if have_hl:
+        high_low = df["High"] - df["Low"]
+        high_pc = (df["High"] - prev_close).abs()
+        low_pc = (df["Low"] - prev_close).abs()
+        true_range = pd.concat([high_low, high_pc, low_pc], axis=1).max(axis=1)
+    else:
+        # Simplified proxy — only used if H/L are unavailable (not the case today).
+        true_range = (df["Close"] - prev_close).abs()
+
+    atr = true_range.rolling(window=period).mean().iloc[-1]
+    if pd.isna(atr):
+        return (None, None)
+
+    atr = round(float(atr), 2)
+    weekly_atr = round(atr * (5 ** 0.5), 2)  # ≈ daily ATR scaled to a week
+    return (atr, weekly_atr)
+
+
 if __name__ == "__main__":
     pd.set_option("display.max_columns", None)
     pd.set_option("display.width", 200)
