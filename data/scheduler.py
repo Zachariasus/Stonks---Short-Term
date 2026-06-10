@@ -167,6 +167,20 @@ def refresh_all_data() -> dict:
     print(f"  Fundamentals snapshots saved : {fundamentals_saved}")
     print(f"  Earnings dates updated       : {earnings_dates_updated}")
 
+    # ---- News: one daily pass for free (flagged tickers only) ----
+    # Piggybacking on the nightly data run gives a single daily news refresh at no
+    # extra plumbing cost; the standalone news_scheduler adds the HOURLY layer on
+    # top. Imported lazily and wrapped in its own try/except so a news failure
+    # (or a missing NEWS_API_KEY) can never break the price/fundamentals refresh.
+    news_summary = None
+    try:
+        from news.news_scheduler import run_news_refresh
+
+        print()  # spacer before the news block
+        news_summary = run_news_refresh(days_back=1)
+    except Exception as err:  # noqa: BLE001 - data refresh must survive any news error
+        print(f"⚠️  Daily news refresh failed (data refresh unaffected): {err}")
+
     return {
         "tickers": len(tickers),
         "prices_ok": prices_ok,
@@ -174,6 +188,7 @@ def refresh_all_data() -> dict:
         "price_rows_skipped": price_rows_skipped,
         "fundamentals_saved": fundamentals_saved,
         "earnings_dates_updated": earnings_dates_updated,
+        "news": news_summary,
     }
 
 
