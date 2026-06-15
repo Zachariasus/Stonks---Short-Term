@@ -24,3 +24,11 @@ project_timeline.html
 
 # --- Local database (rebuildable from the fetchers; can grow large) ---
 *.db
+
+# --- Frontend (React/Vite) ---
+# Installed packages and build output are rebuildable — never commit them.
+webapp/frontend/node_modules/
+webapp/frontend/dist/
+# The frontend .env only holds the public VITE_API_BASE_URL (no secret), and the
+# build needs it — re-include it despite the global .env rule above.
+!webapp/frontend/.env
