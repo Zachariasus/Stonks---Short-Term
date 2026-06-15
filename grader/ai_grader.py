@@ -201,6 +201,12 @@ def grade_stock(ticker: str) -> dict:
         "confluence_score": s6.get("total_score"),
         "confidence_label": s6.get("confidence_label"),
         "direction": s6.get("direction"),
+        # Per-engine point breakdown (powers the Grader UI's E1–E4 bars).
+        "engine_1_pts": s6.get("engine_1_pts"),
+        "engine_2_pts": s6.get("engine_2_pts"),
+        "engine_3_pts": s6.get("engine_3_pts"),
+        "engine_4_pts": s6.get("engine_4_pts"),
+        "engines_firing": s6.get("engines_firing"),
         "stub": grade.get("stub", False),
         "parse_error": grade.get("parse_error", False),
         "api_error": grade.get("api_error", False),

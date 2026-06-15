@@ -132,6 +132,12 @@ class GradeResponse(BaseModel):
     confluence_score: Optional[int] = None
     confidence_label: Optional[str] = None
     direction: Optional[str] = None
+    # Per-engine breakdown (maxes are fixed by the scorer: 35/25/25/15).
+    engine_1_pts: Optional[int] = None
+    engine_2_pts: Optional[int] = None
+    engine_3_pts: Optional[int] = None
+    engine_4_pts: Optional[int] = None
+    engines_firing: Optional[int] = None
     entry_price: Optional[float] = None
     stop_price: Optional[float] = None
     target_price: Optional[float] = None
@@ -246,6 +252,11 @@ def grade(req: GradeRequest):
         confluence_score=grade_result.get("confluence_score"),
         confidence_label=grade_result.get("confidence_label"),
         direction=grade_result.get("direction"),
+        engine_1_pts=grade_result.get("engine_1_pts"),
+        engine_2_pts=grade_result.get("engine_2_pts"),
+        engine_3_pts=grade_result.get("engine_3_pts"),
+        engine_4_pts=grade_result.get("engine_4_pts"),
+        engines_firing=grade_result.get("engines_firing"),
         entry_price=risk.get("entry_price"),
         stop_price=risk.get("stop_price"),
         target_price=risk.get("target_price"),
