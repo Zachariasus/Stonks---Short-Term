@@ -1,25 +1,36 @@
 // src/App.jsx
 // ===========
-// App shell + client-side routing (React Router). Three routes:
+// App shell + client-side routing (React Router). Four routes:
 //   /        → Flagged Stocks (FlagsPage)
 //   /news    → News Feed       (NewsPage)
 //   /grader  → Stock Grader    (GraderPage)
-// The nav uses <Link> (no full page reloads) and highlights the active route
-// with a green underline. Dark slate theme, green accents.
+//   /sectors → Sector Rankings (SectorPage)
+// Desktop: horizontal nav on the right. Mobile (<768px): a hamburger (☰) that
+// toggles a dropdown (closes on link click). Dark slate theme, green accents.
 
+import { useState } from "react";
 import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
 
 import FlagsPage from "./pages/FlagsPage";
 import NewsPage from "./pages/NewsPage";
 import GraderPage from "./pages/GraderPage";
+import SectorPage from "./pages/SectorPage";
+
+const NAV = [
+  { to: "/", label: "Flagged Stocks" },
+  { to: "/news", label: "News Feed" },
+  { to: "/grader", label: "Stock Grader" },
+  { to: "/sectors", label: "Sectors" },
+];
 
 // A nav link that underlines itself when its route is active.
-function NavLink({ to, children }) {
+function NavLink({ to, children, onClick }) {
   const { pathname } = useLocation();
   const active = pathname === to;
   return (
     <Link
       to={to}
+      onClick={onClick}
       className={
         active
           ? "text-white font-medium border-b-2 border-green-400 pb-1"
@@ -32,16 +43,44 @@ function NavLink({ to, children }) {
 }
 
 function Header() {
+  const [open, setOpen] = useState(false);
   return (
-    <header className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-      <Link to="/" className="text-xl font-bold tracking-tight">
-        <span className="text-green-400">Stonks</span>
-      </Link>
-      <nav className="flex gap-6 text-sm">
-        <NavLink to="/">Flagged Stocks</NavLink>
-        <NavLink to="/news">News Feed</NavLink>
-        <NavLink to="/grader">Stock Grader</NavLink>
-      </nav>
+    <header className="border-b border-slate-800">
+      <div className="flex items-center justify-between px-4 md:px-6 py-4">
+        <Link to="/" className="text-xl font-bold tracking-tight" onClick={() => setOpen(false)}>
+          <span className="text-green-400">Stonks</span>
+        </Link>
+
+        {/* Desktop nav */}
+        <nav className="hidden md:flex gap-6 text-sm">
+          {NAV.map((n) => (
+            <NavLink key={n.to} to={n.to}>
+              {n.label}
+            </NavLink>
+          ))}
+        </nav>
+
+        {/* Mobile hamburger */}
+        <button
+          className="md:hidden text-2xl text-slate-300 leading-none"
+          onClick={() => setOpen((o) => !o)}
+          aria-label="Toggle menu"
+          aria-expanded={open}
+        >
+          ☰
+        </button>
+      </div>
+
+      {/* Mobile dropdown (closes when a link is clicked) */}
+      {open && (
+        <nav className="md:hidden flex flex-col gap-3 px-4 pb-4 text-sm border-t border-slate-800 pt-3">
+          {NAV.map((n) => (
+            <NavLink key={n.to} to={n.to} onClick={() => setOpen(false)}>
+              {n.label}
+            </NavLink>
+          ))}
+        </nav>
+      )}
     </header>
   );
 }
@@ -49,7 +88,7 @@ function Header() {
 // Per-route page heading.
 function PageHeading({ title, subtitle }) {
   return (
-    <div className="px-6 pt-6">
+    <div className="px-4 md:px-6 pt-6">
       <h1 className="text-2xl font-semibold">{title}</h1>
       {subtitle && <p className="mt-1 text-sm text-slate-400">{subtitle}</p>}
     </div>
@@ -96,6 +135,18 @@ export default function App() {
                     subtitle="AI letter grade, confluence breakdown, and position sizing for one stock."
                   />
                   <GraderPage />
+                </>
+              }
+            />
+            <Route
+              path="/sectors"
+              element={
+                <>
+                  <PageHeading
+                    title="Sector Rankings"
+                    subtitle="The 11 sectors ranked by relative strength, with the top-down tilt."
+                  />
+                  <SectorPage />
                 </>
               }
             />

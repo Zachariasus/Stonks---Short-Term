@@ -100,8 +100,8 @@ export default function NewsPage() {
   }, []);
 
   return (
-    <div className="p-6">
-      {/* Search bar */}
+    <div className="p-4 md:p-6">
+      {/* Search bar (full width on mobile) */}
       <form
         className="flex items-center gap-2 mb-6"
         onSubmit={(e) => {
@@ -114,7 +114,7 @@ export default function NewsPage() {
           value={ticker}
           onChange={(e) => setTicker(e.target.value.toUpperCase())}
           placeholder="Ticker (e.g. AAPL)"
-          className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white w-48 uppercase"
+          className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white flex-1 md:flex-none md:w-48 uppercase"
         />
         <button
           type="submit"

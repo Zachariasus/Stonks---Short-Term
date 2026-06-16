@@ -33,13 +33,16 @@ function EngineBar({ label, pts, max }) {
   const value = pts ?? 0;
   const pct = max ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return (
-    <div className="flex items-center gap-3 text-sm">
-      <div className="w-44 text-slate-300">{label}</div>
-      <div className="w-14 text-right text-slate-400 tabular-nums">
-        {value}/{max}
-      </div>
-      <div className="h-2 flex-1 rounded bg-slate-700 overflow-hidden">
-        <div className="h-full bg-green-500" style={{ width: `${pct}%` }} />
+    // Desktop: label | pts | bar on one row. Mobile: label above, pts+bar below.
+    <div className="text-sm md:flex md:items-center md:gap-3">
+      <div className="text-slate-300 md:w-44">{label}</div>
+      <div className="mt-1 flex items-center gap-3 md:mt-0 md:flex-1">
+        <div className="w-14 text-right text-slate-400 tabular-nums">
+          {value}/{max}
+        </div>
+        <div className="h-2 flex-1 rounded bg-slate-700 overflow-hidden">
+          <div className="h-full bg-green-500" style={{ width: `${pct}%` }} />
+        </div>
       </div>
     </div>
   );
@@ -103,41 +106,41 @@ export default function GraderPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl">
-      {/* --- Form --- */}
-      <form className="flex flex-wrap items-end gap-4 mb-6" onSubmit={handleGrade}>
-        <label className="flex flex-col text-xs text-slate-400">
+    <div className="p-4 md:p-6 max-w-4xl">
+      {/* --- Form (stacks full-width on mobile, row on desktop) --- */}
+      <form className="flex flex-col md:flex-row md:flex-wrap md:items-end gap-4 mb-6" onSubmit={handleGrade}>
+        <label className="flex flex-col text-xs text-slate-400 w-full md:w-auto">
           Ticker
           <input
             type="text"
             value={ticker}
             onChange={(e) => setTicker(e.target.value.toUpperCase())}
-            className="mt-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white w-32 uppercase"
+            className="mt-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white w-full md:w-32 uppercase"
           />
         </label>
 
-        <label className="flex flex-col text-xs text-slate-400">
+        <label className="flex flex-col text-xs text-slate-400 w-full md:w-auto">
           Account size
-          <div className="mt-1 flex items-center bg-slate-800 border border-slate-700 rounded px-2">
+          <div className="mt-1 flex items-center bg-slate-800 border border-slate-700 rounded px-2 w-full md:w-auto">
             <span className="text-slate-500 text-sm">$</span>
             <input
               type="number"
               value={accountSize}
               onChange={(e) => setAccountSize(e.target.value)}
-              className="bg-transparent px-1 py-2 text-sm text-white w-28 outline-none"
+              className="bg-transparent px-1 py-2 text-sm text-white w-full md:w-28 outline-none"
             />
           </div>
         </label>
 
-        <label className="flex flex-col text-xs text-slate-400">
+        <label className="flex flex-col text-xs text-slate-400 w-full md:w-auto">
           Risk per trade
-          <div className="mt-1 flex items-center bg-slate-800 border border-slate-700 rounded px-2">
+          <div className="mt-1 flex items-center bg-slate-800 border border-slate-700 rounded px-2 w-full md:w-auto">
             <input
               type="number"
               step="0.1"
               value={riskPct}
               onChange={(e) => setRiskPct(e.target.value)}
-              className="bg-transparent px-1 py-2 text-sm text-white w-16 outline-none"
+              className="bg-transparent px-1 py-2 text-sm text-white w-full md:w-16 outline-none"
             />
             <span className="text-slate-500 text-sm">%</span>
           </div>
@@ -146,7 +149,7 @@ export default function GraderPage() {
         <button
           type="submit"
           disabled={loading}
-          className="bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded"
+          className="w-full md:w-auto bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded"
         >
           {loading ? "Grading..." : "Grade This Stock"}
         </button>
@@ -179,7 +182,7 @@ export default function GraderPage() {
           )}
 
           {/* SECTION A — Grade card */}
-          <div className="border border-slate-800 rounded-lg p-6 bg-slate-800/30">
+          <div className="border border-slate-800 rounded-lg p-4 md:p-6 bg-slate-800/30">
             <div className="text-center">
               <div className={`text-7xl font-bold ${gradeColor(result.grade)}`}>
                 {result.grade || "?"}
@@ -221,7 +224,7 @@ export default function GraderPage() {
           </div>
 
           {/* SECTION B — Confluence score */}
-          <div className="border border-slate-800 rounded-lg p-6 bg-slate-800/30">
+          <div className="border border-slate-800 rounded-lg p-4 md:p-6 bg-slate-800/30">
             <div className="flex items-baseline justify-between mb-4">
               <h2 className="text-lg font-semibold">Confluence Score</h2>
               <div className="text-slate-300">
@@ -241,9 +244,9 @@ export default function GraderPage() {
           </div>
 
           {/* SECTION C — Position sizing */}
-          <div className="border border-slate-800 rounded-lg p-6 bg-slate-800/30">
+          <div className="border border-slate-800 rounded-lg p-4 md:p-6 bg-slate-800/30">
             <h2 className="text-lg font-semibold mb-4">Position Sizing</h2>
-            <div className="flex flex-wrap gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <InfoBox label="Entry" value={money(result.entry_price)} />
               <InfoBox label="Stop" value={money(result.stop_price)} />
               <InfoBox label="Target" value={money(result.target_price)} valueClass={negativeUpside ? "text-red-400" : "text-white"} />
@@ -253,7 +256,7 @@ export default function GraderPage() {
                 valueClass={poorRR ? "text-red-400" : "text-white"}
               />
             </div>
-            <div className="flex flex-wrap gap-3 mt-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
               <InfoBox label="Shares" value={result.shares ?? "—"} />
               <InfoBox
                 label="Position"
@@ -290,7 +293,7 @@ export default function GraderPage() {
           </div>
 
           {/* SECTION D — Earnings */}
-          <div className="border border-slate-800 rounded-lg p-6 bg-slate-800/30">
+          <div className="border border-slate-800 rounded-lg p-4 md:p-6 bg-slate-800/30">
             <h2 className="text-lg font-semibold mb-3">Earnings</h2>
             <div className="flex items-center gap-3 text-slate-300">
               <span>Next earnings:</span>
