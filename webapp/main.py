@@ -30,7 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import JSONResponse  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel, ConfigDict  # noqa: E402
 
 # --- Existing backend functions (the API just exposes these) ---
@@ -44,6 +45,10 @@ from news.relevance_scorer import get_relevant_news  # noqa: E402
 from screener.flag_generator import get_active_flags  # noqa: E402
 
 API_VERSION = "0.1.0"
+
+# The built React frontend (webapp/frontend/dist). Resolved from this file's
+# location so it works regardless of the current working directory.
+FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
 
 
 # ---------------------------------------------------------------------------
@@ -59,12 +64,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Stonks Trading System", version=API_VERSION, lifespan=lifespan)
 
-# CORS: the React dev server runs on a different origin (e.g. localhost:5173),
-# so the browser needs permission to call this API. Wildcard origins are fine for
-# local dev; credentials stay off (a "*" origin with credentials is invalid CORS).
+# CORS: FastAPI now serves the frontend on the SAME origin, so the production app
+# needs no CORS at all. We keep the middleware but lock it down to localhost (only
+# the Vite dev server might still call cross-origin during development). Restricted
+# from the earlier wildcard; we'll reopen it for the deployed origin later.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -280,6 +286,21 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Internal error", "error": str(exc)},
     )
+
+
+# ---------------------------------------------------------------------------
+# Serve the built React frontend (single-process production-style local run).
+# Registered AFTER all API routes so /health, /flags, /grade, etc. take
+# precedence. The hashed JS/CSS bundles live under /assets; the catch-all below
+# returns index.html for every other path so React Router's client-side routes
+# (/, /news, /grader, /sectors) resolve on a hard refresh or a direct visit.
+# ---------------------------------------------------------------------------
+app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
+
+
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    return FileResponse(str(FRONTEND_DIST / "index.html"))
 
 
 if __name__ == "__main__":

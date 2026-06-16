@@ -8,9 +8,12 @@
 
 import axios from "axios";
 
-// Vite exposes env vars prefixed with VITE_ on import.meta.env (baked in at build
-// time). Falls back to localhost for safety if the .env is missing.
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+// Vite inlines VITE_* env vars at build time. In DEV (npm run dev), .env sets
+// VITE_API_BASE_URL=http://localhost:8000 so the Vite server reaches the separate
+// backend. In the PRODUCTION build it's empty (.env.production), so we fall back to
+// a RELATIVE base — FastAPI serves this app on the same origin, so "/flags" etc.
+// resolve to the same host automatically (no CORS needed).
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const client = axios.create({
   baseURL: API_BASE_URL,

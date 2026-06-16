@@ -10,9 +10,10 @@ venv/
 __pycache__/
 *.pyc
 
-# Packaging / build output and test caches
+# Packaging / build output and test caches. `/dist/` is root-anchored so it
+# ignores Python packaging output but NOT the committed webapp/frontend/dist.
 *.egg-info/
-dist/
+/dist/
 build/
 .pytest_cache/
 
@@ -26,9 +27,11 @@ project_timeline.html
 *.db
 
 # --- Frontend (React/Vite) ---
-# Installed packages and build output are rebuildable — never commit them.
+# node_modules is rebuildable — never commit it. The built frontend (dist/) IS
+# committed on purpose: FastAPI serves it, so a clone runs ./start.sh with no
+# npm build step.
 webapp/frontend/node_modules/
-webapp/frontend/dist/
-# The frontend .env only holds the public VITE_API_BASE_URL (no secret), and the
-# build needs it — re-include it despite the global .env rule above.
+# The frontend .env files only hold the public VITE_API_BASE_URL (no secret) and
+# the build needs them — re-include despite the global .env rule above.
 !webapp/frontend/.env
+!webapp/frontend/.env.production
