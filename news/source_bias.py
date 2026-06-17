@@ -73,12 +73,16 @@ def lookup(url=None, source_name=None) -> dict:
             "bias": "Unknown",
             "reliability": None,
             "category": None,
+            "homepage": None,
         }
+    domains = outlet.get("domains") or []
     return {
         "outlet": outlet["name"],
         "bias": outlet["bias"],
         "reliability": outlet.get("reliability"),
         "category": outlet.get("category"),
+        # Outlet homepage from its primary domain (clicking the name opens this).
+        "homepage": f"https://{domains[0]}" if domains else None,
     }
 
 

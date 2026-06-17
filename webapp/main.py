@@ -130,6 +130,7 @@ class NewsArticleResponse(BaseModel):
     outlet: Optional[str] = None
     bias: Optional[str] = None
     reliability: Optional[str] = None
+    homepage: Optional[str] = None  # outlet homepage (click the outlet name)
 
 
 class GradeRequest(BaseModel):
@@ -218,7 +219,13 @@ def get_flag(ticker: str):
 def _enrich_news(article: dict) -> dict:
     """Add outlet/bias/reliability to a stored-article dict (read-time tagging)."""
     tag = bias_lookup(url=article.get("url"), source_name=article.get("source"))
-    return {**article, "outlet": tag["outlet"], "bias": tag["bias"], "reliability": tag["reliability"]}
+    return {
+        **article,
+        "outlet": tag["outlet"],
+        "bias": tag["bias"],
+        "reliability": tag["reliability"],
+        "homepage": tag.get("homepage"),
+    }
 
 
 @app.get("/watchlist-news", response_model=List[NewsArticleResponse])
