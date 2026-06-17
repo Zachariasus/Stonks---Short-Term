@@ -21,7 +21,7 @@ import pandas as pd
 # inserts the project root so the file runs standalone too.
 try:
     from analysis.earnings_calendar import get_days_to_earnings, get_earnings_flag
-    from analysis.price_target import calculate_reward_risk
+    from analysis.price_target import calculate_price_target, calculate_reward_risk
     from analysis.stage_classifier import STAGE_LABELS
     from data.database import Flag, get_session, init_db
     from data.db_reader import get_price_bars
@@ -31,7 +31,7 @@ except ImportError:  # pragma: no cover
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from analysis.earnings_calendar import get_days_to_earnings, get_earnings_flag
-    from analysis.price_target import calculate_reward_risk
+    from analysis.price_target import calculate_price_target, calculate_reward_risk
     from analysis.stage_classifier import STAGE_LABELS
     from data.database import Flag, get_session, init_db
     from data.db_reader import get_price_bars
@@ -75,13 +75,57 @@ def _stage_str(score_dict) -> str:
     )
 
 
-def _apply_live_fields(flag, score_dict) -> None:
-    """Refresh an existing flag's CURRENT-state fields from today's screen.
+def _setup_fields(ticker, direction="Long") -> dict:
+    """Compute today's actionable setup levels: entry, stop, target, R:R.
 
-    Updates the values that legitimately move day to day (score, confidence, RS,
-    sector rotation, earnings timing). Does NOT touch entry/target/stop/rr — those
-    are fixed at the original entry. Stage + the date span are handled by the
-    caller (sync_flags_from_screen).
+    Direction-aware and recomputed every scan ("if you enter now"):
+      • entry  = latest stored close.
+      • stop   = 8% BELOW entry for a LONG, 8% ABOVE entry for a SHORT (placeholder).
+      • target / R:R = from the valuation engine for LONGS. That model produces a
+        mean-reversion UPSIDE target, which is meaningless (and contradictory) for a
+        short, so shorts leave target/R:R null rather than show the wrong number —
+        until a dedicated short-side objective exists.
+    """
+    bars = get_price_bars(ticker, days=5)
+    entry = (
+        round(float(bars["Close"].iloc[-1]), 2)
+        if bars is not None and not bars.empty
+        else None
+    )
+    if entry is None:
+        return {"entry_price": None, "suggested_stop": None, "target_price": None, "rr_ratio": None}
+
+    if direction == "Short":
+        # Short stop sits ABOVE entry; no short-side target model yet → null.
+        return {
+            "entry_price": entry,
+            "suggested_stop": round(entry * 1.08, 2),
+            "target_price": None,
+            "rr_ratio": None,
+        }
+
+    # Long: stop below entry, valuation target + reward:risk.
+    stop = round(entry * 0.92, 2)
+    target = None
+    rr = None
+    rr_data = calculate_reward_risk(ticker, stop)  # uses the live valuation target
+    if rr_data is not None:
+        target = rr_data.get("target_price")
+        rr = rr_data.get("rr_ratio")
+    else:
+        tp = calculate_price_target(ticker)
+        target = tp.get("target_price") if tp else None
+    return {"entry_price": entry, "suggested_stop": stop, "target_price": target, "rr_ratio": rr}
+
+
+def _apply_live_fields(flag, score_dict) -> None:
+    """Refresh an existing flag's fields from today's screen — everything except the
+    span dates and the stable flagged_date.
+
+    All displayed values move to today's: score, confidence, RS, sector rotation,
+    earnings timing, AND the actionable setup (entry/target/stop/R:R, recomputed
+    from today's close). Stage + the date span are handled by the caller
+    (sync_flags_from_screen); flagged_date stays put (the stable entry anchor).
     """
     flag.score = int(_na_to_none(score_dict.get("total_score")) or 0)
     flag.confidence_label = _na_to_none(score_dict.get("confidence_label"))
@@ -90,6 +134,12 @@ def _apply_live_fields(flag, score_dict) -> None:
     flag.sector_rotation_label = _na_to_none(score_dict.get("sector_rotation_label"))
     flag.earnings_flag = get_earnings_flag(flag.ticker)
     flag.days_to_earnings = get_days_to_earnings(flag.ticker)
+
+    setup = _setup_fields(flag.ticker, flag.direction)
+    flag.entry_price = setup["entry_price"]
+    flag.suggested_stop = setup["suggested_stop"]
+    flag.target_price = setup["target_price"]
+    flag.rr_ratio = setup["rr_ratio"]
 
 
 def generate_flag(score_dict, target_price=None):
@@ -114,27 +164,19 @@ def generate_flag(score_dict, target_price=None):
             print(f"generate_flag: {ticker} ({direction}) — skipped, already flagged today.")
             return existing
 
-        # Entry = latest stored close.
-        bars = get_price_bars(ticker, days=5)
-        entry_price = (
-            round(float(bars["Close"].iloc[-1]), 2)
-            if bars is not None and not bars.empty
-            else None
+        # Today's actionable setup levels (entry/stop/target/R:R), computed live.
+        setup = _setup_fields(ticker, direction)
+        entry_price = setup["entry_price"]
+        suggested_stop = setup["suggested_stop"]
+        # An explicit target argument (rare) overrides the computed valuation target.
+        target_price = (
+            round(float(target_price), 2) if target_price is not None else setup["target_price"]
         )
-
-        # Placeholder protective stop: 8% below entry.
-        suggested_stop = round(entry_price * 0.92, 2) if entry_price is not None else None
+        rr_ratio = setup["rr_ratio"]
 
         # Earnings awareness.
         earnings_flag = get_earnings_flag(ticker)
         days_to_earn = get_days_to_earnings(ticker)
-
-        # Reward:risk only if a target was supplied (else left None for now).
-        rr_ratio = None
-        if target_price is not None and suggested_stop is not None:
-            rr = calculate_reward_risk(ticker, suggested_stop)
-            if rr:
-                rr_ratio = rr["rr_ratio"]
 
         # Readable stage label ("Stage 2 — Advancing").
         stage_str = _stage_str(score_dict)
@@ -152,7 +194,7 @@ def generate_flag(score_dict, target_price=None):
             sector_etf=_na_to_none(score_dict.get("sector_etf")),
             sector_rotation_label=_na_to_none(score_dict.get("sector_rotation_label")),
             entry_price=entry_price,
-            target_price=round(float(target_price), 2) if target_price is not None else None,
+            target_price=target_price,
             suggested_stop=suggested_stop,
             rr_ratio=rr_ratio,
             earnings_flag=earnings_flag,
