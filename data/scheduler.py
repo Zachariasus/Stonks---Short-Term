@@ -167,6 +167,46 @@ def refresh_all_data() -> dict:
     print(f"  Fundamentals snapshots saved : {fundamentals_saved}")
     print(f"  Earnings dates updated       : {earnings_dates_updated}")
 
+    # ---- Validate price data + auto-correct bad bars ----
+    # Runs after prices are saved and BEFORE screening, so a corrupt yfinance bar
+    # (reverting spike, NaN, OHLC violation) can't manufacture a fake flag. Bad
+    # bars a re-fetch resolves are corrected in place; anything it can't resolve is
+    # logged for review. Own try/except so a validation error can't break the run.
+    try:
+        from data.data_validator import run_validation
+
+        print()  # spacer
+        run_validation()
+    except Exception as err:  # noqa: BLE001 - refresh must survive a validation error
+        print(f"⚠️  Data validation failed (refresh unaffected): {err}")
+
+    # ---- Screen the refreshed universe and (re)generate flags ----
+    # This is the step that turns fresh data into the Flagged Stocks list: score
+    # every stock with enough price history through the 4-engine confluence model,
+    # then flag the ones that clear the long/short thresholds. Runs BEFORE the news
+    # pass so news is fetched for the just-generated flags. Own try/except so a
+    # screening error can never break the data refresh.
+    screen_summary = None
+    try:
+        from screener.flag_generator import flag_screener_results
+        from screener.screener import run_screener
+
+        print()  # spacer
+        screen_df = run_screener()  # scores the full scoreable universe
+        flag_result = flag_screener_results(screen_df)
+        screen_summary = {
+            "scored": 0 if screen_df is None else len(screen_df),
+            "new_flags": flag_result["new_flags"],
+            "skipped_existing": flag_result["skipped_existing"],
+        }
+        print(
+            f"  Stocks scored                : {screen_summary['scored']}\n"
+            f"  New flags generated          : {screen_summary['new_flags']}\n"
+            f"  Flags already present        : {screen_summary['skipped_existing']}"
+        )
+    except Exception as err:  # noqa: BLE001 - data refresh must survive a screening error
+        print(f"⚠️  Screening/flagging failed (data refresh unaffected): {err}")
+
     # ---- News: one daily pass for free (flagged tickers only) ----
     # Piggybacking on the nightly data run gives a single daily news refresh at no
     # extra plumbing cost; the standalone news_scheduler adds the HOURLY layer on
@@ -188,6 +228,7 @@ def refresh_all_data() -> dict:
         "price_rows_skipped": price_rows_skipped,
         "fundamentals_saved": fundamentals_saved,
         "earnings_dates_updated": earnings_dates_updated,
+        "screen": screen_summary,
         "news": news_summary,
     }
 

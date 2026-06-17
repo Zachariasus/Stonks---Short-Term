@@ -35,6 +35,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     create_engine,
+    event,
     func,
     inspect,
 )
@@ -297,6 +298,17 @@ def get_engine():
     if _engine is None:
         # echo=False keeps SQL out of the console; flip to True to debug queries.
         _engine = create_engine(DB_URL, echo=False, future=True)
+
+        # SQLite concurrency: the web app reads the DB while the daily scheduler
+        # writes a full universe refresh. WAL mode lets readers run WITHOUT
+        # blocking on the writer, and busy_timeout makes any connection wait
+        # (instead of erroring "database is locked") if it does hit contention.
+        @event.listens_for(_engine, "connect")
+        def _set_sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA busy_timeout=10000")  # wait up to 10s for a lock
+            cur.close()
     return _engine
 
 

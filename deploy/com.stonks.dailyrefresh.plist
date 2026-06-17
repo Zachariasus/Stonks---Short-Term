@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Daily Stonks data refresh + screen + flag.
+  Runs refresh.sh every day at 16:30 local time (Central = 5:30pm ET, safely after
+  the US market close). If the Mac is asleep at 16:30, launchd runs it once on wake.
+
+  Install:
+    cp deploy/com.stonks.dailyrefresh.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.stonks.dailyrefresh.plist
+  Check:   launchctl list | grep stonks
+  Logs:    ~/Library/Logs/stonks-daily-refresh.log
+  Disable: launchctl unload -w ~/Library/LaunchAgents/com.stonks.dailyrefresh.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.stonks.dailyrefresh</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/zachariasus/Claude/Projects/Stonks (Short-Term)/refresh.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/zachariasus/Claude/Projects/Stonks (Short-Term)</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>16</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/zachariasus/Library/Logs/stonks-daily-refresh.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/zachariasus/Library/Logs/stonks-daily-refresh.log</string>
+</dict>
+</plist>

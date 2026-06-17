@@ -143,10 +143,13 @@ def generate_flag(score_dict, target_price=None):
         session.close()
 
 
-def flag_screener_results(screener_df, min_score_long: int = 60, min_score_short: int = 55) -> dict:
+def flag_screener_results(screener_df, min_score_long: int = 70, min_score_short: int = 70) -> dict:
     """Flag every qualifying row of a screener DataFrame.
 
     Long rows need score ≥ min_score_long; Short rows need score ≥ min_score_short.
+    Both default to 70 — the confluence scorer's "High confidence" score boundary —
+    so the Flagged Stocks list stays a tight, high-conviction watchlist rather than
+    a few-hundred-name dump. (Earlier 60/55 produced ~144 flags; 70/70 ≈ 27.)
     Returns {new_flags, skipped_existing, flagged_tickers}.
     """
     summary = {"new_flags": 0, "skipped_existing": 0, "flagged_tickers": []}
