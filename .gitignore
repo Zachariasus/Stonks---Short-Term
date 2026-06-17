@@ -22,6 +22,8 @@ build/
 
 # --- Local-only files (kept on my machine, not pushed to the repo) ---
 project_timeline.html
+# Local Claude Code tooling (preview launch config has machine-specific paths)
+.claude/
 
 # --- Local database (rebuildable from the fetchers; can grow large) ---
 *.db
