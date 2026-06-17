@@ -34,8 +34,19 @@ export async function fetchFlags(direction = null, minScore = 0) {
   }
 }
 
+// GET /watchlist-news — the home feed: news across the flagged stocks.
+export async function fetchWatchlistNews(limit = 40) {
+  try {
+    const { data } = await client.get("/watchlist-news", { params: { limit } });
+    return data;
+  } catch (err) {
+    console.error("fetchWatchlistNews failed:", err);
+    throw err;
+  }
+}
+
 // GET /news/{ticker} — relevance-filtered news for one ticker.
-export async function fetchNews(ticker, limit = 10) {
+export async function fetchNews(ticker, limit = 20) {
   try {
     const { data } = await client.get(`/news/${ticker}`, { params: { limit } });
     return data;

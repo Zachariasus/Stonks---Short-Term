@@ -42,6 +42,7 @@ from data.db_reader import get_price_bars  # noqa: E402
 from grader.ai_grader import grade_stock  # noqa: E402
 from grader.position_sizer import calculate_full_risk_profile  # noqa: E402
 from news.relevance_scorer import get_relevant_news  # noqa: E402
+from news.source_bias import lookup as bias_lookup  # noqa: E402
 from screener.flag_generator import get_active_flags  # noqa: E402
 
 API_VERSION = "0.1.0"
@@ -64,13 +65,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Stonks Trading System", version=API_VERSION, lifespan=lifespan)
 
-# CORS: FastAPI now serves the frontend on the SAME origin, so the production app
-# needs no CORS at all. We keep the middleware but lock it down to localhost (only
-# the Vite dev server might still call cross-origin during development). Restricted
-# from the earlier wildcard; we'll reopen it for the deployed origin later.
+# CORS: the production app serves the frontend on the SAME origin (:8000), so it
+# needs no CORS. We also allow the Vite dev server (:5173/:5174) so `npm run dev`
+# can call this backend cross-origin during development. Localhost-only — we'll
+# reopen it for the deployed origin later.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_origins=[
+        "http://localhost:8000", "http://127.0.0.1:8000",
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:5174", "http://127.0.0.1:5174",
+    ],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -121,6 +126,10 @@ class NewsArticleResponse(BaseModel):
     relevance_score: Optional[float] = None
     sentiment_label: Optional[str] = None
     content_snippet: Optional[str] = None
+    # Outlet + bias, looked up from the curated source list at read time.
+    outlet: Optional[str] = None
+    bias: Optional[str] = None
+    reliability: Optional[str] = None
 
 
 class GradeRequest(BaseModel):
@@ -206,12 +215,52 @@ def get_flag(ticker: str):
     return FlagResponse.model_validate(latest)
 
 
+def _enrich_news(article: dict) -> dict:
+    """Add outlet/bias/reliability to a stored-article dict (read-time tagging)."""
+    tag = bias_lookup(url=article.get("url"), source_name=article.get("source"))
+    return {**article, "outlet": tag["outlet"], "bias": tag["bias"], "reliability": tag["reliability"]}
+
+
+@app.get("/watchlist-news", response_model=List[NewsArticleResponse])
+def watchlist_news(limit: int = 40, per_ticker: int = 8, min_relevance: int = 30):
+    """Home feed: news for the active flagged stocks, most-recently-flagged first.
+
+    Iterates flagged tickers by flag recency (stage_start_date, then flagged_date)
+    and collects each one's relevant news, deduped by URL — so the freshest flags
+    surface at the top of the feed.
+    """
+    flags = get_active_flags()
+    flags_sorted = sorted(
+        flags,
+        key=lambda f: (f.stage_start_date or f.flagged_date or date.min, f.flagged_date or date.min),
+        reverse=True,
+    )
+
+    out = []
+    seen_urls = set()
+    seen_tickers = set()
+    for f in flags_sorted:
+        if f.ticker in seen_tickers:
+            continue
+        seen_tickers.add(f.ticker)
+        for a in get_relevant_news(f.ticker, min_relevance=min_relevance, limit=per_ticker):
+            if a.get("url") in seen_urls:
+                continue
+            seen_urls.add(a["url"])
+            out.append(_enrich_news(a))
+            if len(out) >= limit:
+                break
+        if len(out) >= limit:
+            break
+    return [NewsArticleResponse.model_validate(a) for a in out]
+
+
 @app.get("/news/{ticker}", response_model=List[NewsArticleResponse])
-def get_news(ticker: str, limit: int = 10, min_relevance: int = 40):
+def get_news(ticker: str, limit: int = 20, min_relevance: int = 40):
     """Relevance-filtered news for a ticker, newest first ([] if none — never 404)."""
     ticker = ticker.strip().upper()
     articles = get_relevant_news(ticker, min_relevance=min_relevance, limit=limit)
-    return [NewsArticleResponse.model_validate(a) for a in articles]
+    return [NewsArticleResponse.model_validate(_enrich_news(a)) for a in articles]
 
 
 @app.get("/sector-rankings")

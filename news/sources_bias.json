@@ -1,0 +1,618 @@
+{
+  "meta": {
+    "title": "Stock News Sources & Bias Reference",
+    "purpose": "Source-to-bias mapping for a daily stock-news scanner. Tag each scanned story by its outlet so the UI can show e.g. 'CNN - Lean Left' and downstream analysis can weight or filter by bias and reliability.",
+    "generated": "2026-06",
+    "bias_scale": {
+      "Left": "Strong, consistent progressive/left editorial perspective.",
+      "Lean Left": "Moderate left tilt in story selection and framing.",
+      "Center": "Balanced or minimal political lean; mixed or neutral framing.",
+      "Lean Right": "Moderate right tilt in story selection and framing.",
+      "Right": "Strong, consistent conservative/right editorial perspective.",
+      "Corporate / Promotional": "Primary source written by/for a company; inherently company-positive, not a political lean.",
+      "Primary / Official": "Government or regulatory primary source; effectively non-partisan factual data.",
+      "User-generated / Sentiment": "Crowd/social content; reflects sentiment, not vetted editorial bias."
+    },
+    "reliability_scale": {
+      "High": "Strong sourcing, low failed fact-checks.",
+      "Mostly factual": "Generally reliable; occasional spin or sensational headlines.",
+      "Mixed / Varies": "Quality varies by author or piece (crowd-sourced or promotional).",
+      "Primary": "Raw data/filings - reliable but must be interpreted, and PR is self-interested."
+    },
+    "rating_sources": [
+      "AllSides (allsides.com) - 5-point Left/Lean Left/Center/Lean Right/Right scale; blind bias surveys + editorial review.",
+      "Ad Fontes Media (adfontesmedia.com) - Media Bias Chart; rates bias and reliability on a grid.",
+      "Media Bias/Fact Check (mediabiasfactcheck.com) - bias category + factual-reporting rating."
+    ],
+    "how_to_use": [
+      "Match a story's source domain against each outlet's 'domains' list to assign the 'bias' tag.",
+      "Store BOTH 'bias' (political tag for display) and 'reliability' + 'type' (for weighting/filtering).",
+      "Prefer tagging by the ORIGINAL source, not the aggregator that surfaced it (e.g. a Reuters story on Yahoo Finance should tag as Reuters).",
+      "When a domain is an aggregator or wire reprint, fall back to the syndicating outlet if identifiable.",
+      "For opinion/editorial pieces, use the outlet's opinion-section rating where 'bias_opinion' is provided."
+    ],
+    "caveats": [
+      "Bias labels reflect the CONSENSUS of AllSides, Ad Fontes, and Media Bias/Fact Check from a US-audience perspective; these orgs sometimes disagree and ratings are revised over time. Treat labels as directional, not absolute.",
+      "Political bias is NOT the same as factual accuracy. A source can be biased but accurate, or centrist but unreliable. Always use the 'reliability' field alongside 'bias'.",
+      "Many outlets differ sharply between NEWS and OPINION/EDITORIAL (e.g. Wall Street Journal, New York Times). Tag by section when you can; 'bias_opinion' notes the split.",
+      "Wire services (Reuters, AP) and primary/official sources (SEC, Fed, BLS) are the most neutral and the highest-value for factual market data.",
+      "Corporate press releases (PR Newswire, Business Wire, GlobeNewswire, company IR) are primary but inherently PROMOTIONAL - verify against independent reporting before treating claims as fact.",
+      "Social / user-generated feeds (Reddit, StockTwits, X) reflect sentiment and are unvetted, with real pump-and-dump / manipulation risk. Use as a sentiment signal, never as fact.",
+      "For stock relevance, 'bias' also has non-political dimensions: sensationalism/clickbait (e.g. Benzinga, Motley Fool headlines) and promotion (small-cap PR, some Seeking Alpha contributor pieces). The 'notes' field flags these.",
+      "Geopolitical/macro stories from general outlets matter because they move sectors (e.g. Middle East conflict -> oil -> energy equities like Exxon). These outlets are included for that reason."
+    ]
+  },
+  "outlets": [
+    {
+      "name": "Reuters",
+      "domains": [
+        "reuters.com"
+      ],
+      "category": "Wire service",
+      "bias": "Center",
+      "reliability": "High",
+      "owner": "Thomson Reuters",
+      "notes": "Global newswire; among the most neutral, fact-driven sources. Breaking market, M&A, macro and geopolitical news. Top-tier for stocks - often the first and most reliable on company and economic news."
+    },
+    {
+      "name": "Associated Press",
+      "domains": [
+        "apnews.com",
+        "ap.org"
+      ],
+      "category": "Wire service",
+      "bias": "Lean Left",
+      "reliability": "High",
+      "owner": "Associated Press (nonprofit cooperative)",
+      "notes": "Global newswire; AllSides rates Lean Left, others Center - widely reliable. Markets, economy, and geopolitics. High-value primary reporting that moves stocks."
+    },
+    {
+      "name": "Bloomberg",
+      "domains": [
+        "bloomberg.com"
+      ],
+      "category": "Financial",
+      "bias": "Lean Left",
+      "reliability": "High",
+      "owner": "Bloomberg L.P. (Michael Bloomberg)",
+      "notes": "Premier financial news and data. MBFC rates Left-Center; markets coverage is widely seen as rigorous and broadly centrist. Deep company, markets, rates, and deal coverage - core source for stocks."
+    },
+    {
+      "name": "CNBC",
+      "domains": [
+        "cnbc.com"
+      ],
+      "category": "Financial",
+      "bias": "Lean Left",
+      "reliability": "Mostly factual",
+      "owner": "NBCUniversal / Comcast",
+      "notes": "Real-time markets TV and web. AllSides Lean Left. Heavy on earnings, Fed, single-stock moves and management interviews; fast but can be noisy/sensational. Core stock source."
+    },
+    {
+      "name": "Wall Street Journal",
+      "domains": [
+        "wsj.com"
+      ],
+      "category": "Financial",
+      "bias": "Center",
+      "reliability": "High",
+      "owner": "Dow Jones / News Corp",
+      "notes": "Premier business daily. NEWS desk rated Center; OPINION/editorial page Lean Right - tag by section. Deep coverage of companies, deals, and the economy. Core stock source.",
+      "bias_opinion": "Lean Right",
+      "section_note": "News desk and Opinion/Editorial differ - tag by section where possible."
+    },
+    {
+      "name": "Financial Times",
+      "domains": [
+        "ft.com"
+      ],
+      "category": "Financial",
+      "bias": "Center",
+      "reliability": "High",
+      "owner": "Nikkei Inc.",
+      "notes": "Global business daily. MBFC Least Biased / high factual. Strong on global markets, macro, and corporates. Core stock source, especially international."
+    },
+    {
+      "name": "MarketWatch",
+      "domains": [
+        "marketwatch.com"
+      ],
+      "category": "Financial",
+      "bias": "Center",
+      "reliability": "Mostly factual",
+      "owner": "Dow Jones / News Corp",
+      "notes": "Retail-focused markets news and commentary. Generally Center (some Left-Center). Fast market recaps, single-stock movers, and personal-finance angles."
+    },
+    {
+      "name": "Barron's",
+      "domains": [
+        "barrons.com"
+      ],
+      "category": "Financial",
+      "bias": "Center",
+      "reliability": "High",
+      "owner": "Dow Jones / News Corp",
+      "notes": "Investing weekly. Center / least-biased. Stock picking, analysis, and markets features - investment-oriented."
+    },
+    {
+      "name": "Forbes",
+      "domains": [
+        "forbes.com"
+      ],
+      "category": "Financial",
+      "bias": "Center",
+      "reliability": "Mostly factual",
+      "owner": "Integrated Whale Media",
+      "notes": "Business and markets. Center overall, but note a large CONTRIBUTOR network whose quality and slant vary by author - tag staff vs contributor where possible."
+    },
+    {
+      "name": "Business Insider",
+      "domains": [
+        "businessinsider.com",
+        "markets.businessinsider.com"
+      ],
+      "category": "Financial",
+      "bias": "Lean Left",
+      "reliability": "Mostly factual",
+      "owner": "Axel Springer",
+      "notes": "Business/tech/markets, faster and more casual. AllSides Lean Left. Markets data pages plus trend and company stories; headlines can be sensational."
+    },
+    {
+      "name": "Yahoo Finance",
+      "domains": [
+        "finance.yahoo.com"
+      ],
+      "category": "Aggregator / Financial",
+      "bias": "Center",
+      "reliability": "Mostly factual",
+      "owner": "Yahoo (Apollo Global)",
+      "notes": "Largest retail finance portal and AGGREGATOR; mixes own content with syndicated wires. Bias depends on the original source - retag to the syndicating outlet when identifiable. Great for quotes, filings, transcripts."
+    },
+    {
+      "name": "Investor's Business Daily",
+      "domains": [
+        "investors.com"
+      ],
+      "category": "Financial",
+      "bias": "Lean Right",
+      "reliability": "High",
+      "owner": "News Corp / Dow Jones",
+      "notes": "Markets and growth-stock focus (CANSLIM). MBFC rates Right; high factual. Technical/growth stock coverage and screens."
+    },
+    {
+      "name": "Seeking Alpha",
+      "domains": [
+        "seekingalpha.com"
+      ],
+      "category": "Financial / Crowd",
+      "bias": "Lean Right",
+      "reliability": "Mixed / Varies",
+      "owner": "Seeking Alpha (private)",
+      "notes": "Crowd-sourced investor analysis. MBFC Right-Center, high factual on news, but CONTRIBUTOR articles vary wildly and can be talking-their-book / promotional. Useful for theses, but verify."
+    },
+    {
+      "name": "The Motley Fool",
+      "domains": [
+        "fool.com"
+      ],
+      "category": "Financial",
+      "bias": "Lean Left",
+      "reliability": "Mostly factual",
+      "owner": "The Motley Fool (private)",
+      "notes": "Retail investing content. MBFC Left-Center, high factual, BUT strongly subscription/promotion-driven with clickbait headlines. Treat recommendations as marketing."
+    },
+    {
+      "name": "Benzinga",
+      "domains": [
+        "benzinga.com"
+      ],
+      "category": "Financial",
+      "bias": "Center",
+      "reliability": "Mostly factual",
+      "owner": "Benzinga (private)",
+      "notes": "Fast markets news, movers, and analyst-rating roundups. MBFC Center. Speed-oriented; carries PR/sponsored and small-cap promotional content - flag sponsored items."
+    },
+    {
+      "name": "Morningstar",
+      "domains": [
+        "morningstar.com"
+      ],
+      "category": "Financial / Research",
+      "bias": "Center",
+      "reliability": "High",
+      "owner": "Morningstar, Inc.",
+      "notes": "Independent investment research and fund/stock ratings. Data-driven, low political lean. Valuation, moat, and fair-value analysis - high-value for fundamentals."
+    },
+    {
+      "name": "Investopedia",
+      "domains": [
+        "investopedia.com"
+      ],
+      "category": "Financial / Education",
+      "bias": "Center",
+      "reliability": "High",
+      "owner": "Dotdash Meredith",
+      "notes": "Educational reference plus markets news. Center / least biased. Good for definitions and explainers behind a story."
+    },
+    {
+      "name": "TheStreet",
+      "domains": [
+        "thestreet.com"
+      ],
+      "category": "Financial",
+      "bias": "Center",
+      "reliability": "Mostly factual",
+      "owner": "The Arena Group",
+      "notes": "Markets news and commentary (founded by Jim Cramer). Center / Left-Center. Single-stock and markets coverage."
+    },
+    {
+      "name": "Kiplinger",
+      "domains": [
+        "kiplinger.com"
+      ],
+      "category": "Financial",
+      "bias": "Center",
+      "reliability": "High",
+      "owner": "Future plc",
+      "notes": "Personal finance and investing. MBFC Least Biased / high factual. Investing guidance and markets explainers."
+    },
+    {
+      "name": "Zacks",
+      "domains": [
+        "zacks.com"
+      ],
+      "category": "Financial / Research",
+      "bias": "Center",
+      "reliability": "Mostly factual",
+      "owner": "Zacks Investment Research",
+      "notes": "Quant research, earnings-estimate revisions, and rankings. Data-driven, low political lean. Strong for estimate-revision and earnings signals."
+    },
+    {
+      "name": "Fox Business",
+      "domains": [
+        "foxbusiness.com"
+      ],
+      "category": "Financial",
+      "bias": "Lean Right",
+      "reliability": "Mostly factual",
+      "owner": "Fox Corporation",
+      "notes": "Business news TV/web. AllSides Lean Right. Markets, economy, and policy with a business-friendly, right-leaning frame."
+    },
+    {
+      "name": "CNN",
+      "domains": [
+        "cnn.com",
+        "money.cnn.com"
+      ],
+      "category": "General news",
+      "bias": "Lean Left",
+      "reliability": "Mostly factual",
+      "owner": "Warner Bros. Discovery",
+      "notes": "Major general/breaking news. AllSides Lean Left. Matters for stocks via macro, policy, and geopolitics (e.g. Middle East conflict -> oil -> energy names like Exxon)."
+    },
+    {
+      "name": "Fox News",
+      "domains": [
+        "foxnews.com"
+      ],
+      "category": "General news",
+      "bias": "Right",
+      "reliability": "Mixed",
+      "owner": "Fox Corporation",
+      "notes": "Major general news, conservative frame. AllSides Right. Markets relevance via policy, regulation, energy, and geopolitics; separate news vs opinion."
+    },
+    {
+      "name": "New York Times",
+      "domains": [
+        "nytimes.com"
+      ],
+      "category": "General news",
+      "bias": "Lean Left",
+      "reliability": "High",
+      "owner": "The New York Times Company",
+      "notes": "Newspaper of record. NEWS Lean Left, OPINION Left - tag by section. Strong DealBook/business desk; macro, policy, tech, and corporate investigations move stocks.",
+      "bias_opinion": "Left",
+      "section_note": "News desk and Opinion/Editorial differ - tag by section where possible."
+    },
+    {
+      "name": "Washington Post",
+      "domains": [
+        "washingtonpost.com"
+      ],
+      "category": "General news",
+      "bias": "Lean Left",
+      "reliability": "High",
+      "owner": "Nash Holdings (Jeff Bezos)",
+      "notes": "Major national daily. AllSides Lean Left. Policy, regulation, and tech coverage with market impact."
+    },
+    {
+      "name": "NPR",
+      "domains": [
+        "npr.org"
+      ],
+      "category": "General news",
+      "bias": "Lean Left",
+      "reliability": "High",
+      "owner": "National Public Radio",
+      "notes": "Public radio news. AllSides Lean Left, high factual. Economy and policy coverage; measured tone."
+    },
+    {
+      "name": "NBC News",
+      "domains": [
+        "nbcnews.com"
+      ],
+      "category": "Broadcast news",
+      "bias": "Lean Left",
+      "reliability": "Mostly factual",
+      "owner": "NBCUniversal / Comcast",
+      "notes": "National broadcast news. AllSides Lean Left. Macro, policy, and breaking events with market spillover."
+    },
+    {
+      "name": "ABC News",
+      "domains": [
+        "abcnews.go.com"
+      ],
+      "category": "Broadcast news",
+      "bias": "Lean Left",
+      "reliability": "Mostly factual",
+      "owner": "The Walt Disney Company",
+      "notes": "National broadcast news. AllSides Lean Left. General and economic news relevant to markets."
+    },
+    {
+      "name": "CBS News",
+      "domains": [
+        "cbsnews.com"
+      ],
+      "category": "Broadcast news",
+      "bias": "Lean Left",
+      "reliability": "Mostly factual",
+      "owner": "Paramount",
+      "notes": "National broadcast news. AllSides Lean Left. General and economic news relevant to markets."
+    },
+    {
+      "name": "Politico",
+      "domains": [
+        "politico.com"
+      ],
+      "category": "Policy",
+      "bias": "Lean Left",
+      "reliability": "Mostly factual",
+      "owner": "Axel Springer",
+      "notes": "Washington policy and politics. AllSides Lean Left. High value for REGULATION/legislation that moves sectors (health, energy, tech, defense, finance)."
+    },
+    {
+      "name": "Axios",
+      "domains": [
+        "axios.com"
+      ],
+      "category": "General / Business",
+      "bias": "Center",
+      "reliability": "Mostly factual",
+      "owner": "Cox Enterprises",
+      "notes": "Brief, scoop-driven news. AllSides Center (some Lean Left). Fast business, tech, and policy scoops with market relevance."
+    },
+    {
+      "name": "The Hill",
+      "domains": [
+        "thehill.com"
+      ],
+      "category": "Policy",
+      "bias": "Center",
+      "reliability": "Mostly factual",
+      "owner": "Nexstar Media Group",
+      "notes": "Congressional and policy news. AllSides Center. Useful for legislation/regulation affecting sectors."
+    },
+    {
+      "name": "The Economist",
+      "domains": [
+        "economist.com"
+      ],
+      "category": "General / Business",
+      "bias": "Lean Left",
+      "reliability": "High",
+      "owner": "The Economist Group",
+      "notes": "Global affairs and economics weekly. AllSides Lean Left socially, but classically liberal / pro-free-market on economics. Strong macro and global-markets framing."
+    },
+    {
+      "name": "BBC News",
+      "domains": [
+        "bbc.com",
+        "bbc.co.uk"
+      ],
+      "category": "General news (intl)",
+      "bias": "Center",
+      "reliability": "High",
+      "owner": "BBC (UK public broadcaster)",
+      "notes": "Global news. AllSides Center (US view). Strong international and macro coverage relevant to global equities and commodities."
+    },
+    {
+      "name": "The Guardian",
+      "domains": [
+        "theguardian.com"
+      ],
+      "category": "General news (intl)",
+      "bias": "Lean Left",
+      "reliability": "Mostly factual",
+      "owner": "Guardian Media Group",
+      "notes": "UK-based global news. AllSides Lean Left. International, energy/climate, and policy coverage with market relevance."
+    },
+    {
+      "name": "STAT News",
+      "domains": [
+        "statnews.com"
+      ],
+      "category": "Sector - health/biotech",
+      "bias": "Center",
+      "reliability": "High",
+      "owner": "Boston Globe Media",
+      "notes": "Health, pharma, and biotech journalism. Low political lean, high quality. Critical for biotech/pharma catalysts (FDA, trials) that move those stocks."
+    },
+    {
+      "name": "Endpoints News",
+      "domains": [
+        "endpts.com"
+      ],
+      "category": "Sector - biotech",
+      "bias": "Center",
+      "reliability": "High",
+      "owner": "Endpoints (private)",
+      "notes": "Biopharma industry trade news. Center / industry-focused. Drug approvals, trials, and deals that move biotech equities."
+    },
+    {
+      "name": "The Verge",
+      "domains": [
+        "theverge.com"
+      ],
+      "category": "Sector - tech",
+      "bias": "Lean Left",
+      "reliability": "Mostly factual",
+      "owner": "Vox Media",
+      "notes": "Consumer tech and policy. AllSides Lean Left. Product, regulation, and platform news affecting big-tech stocks."
+    },
+    {
+      "name": "TechCrunch",
+      "domains": [
+        "techcrunch.com"
+      ],
+      "category": "Sector - tech",
+      "bias": "Center",
+      "reliability": "Mostly factual",
+      "owner": "Regent / Yahoo (historical)",
+      "notes": "Startups, venture, and tech-company news. Roughly Center/Lean Left. Funding, product, and M&A news relevant to tech equities."
+    },
+    {
+      "name": "OilPrice.com",
+      "domains": [
+        "oilprice.com"
+      ],
+      "category": "Sector - energy",
+      "bias": "Center",
+      "reliability": "Mixed / Varies",
+      "owner": "Oilprice (private)",
+      "notes": "Energy and commodities news/analysis. Industry-focused, low political lean; analysis quality varies. Oil/gas pricing and supply news for energy equities."
+    },
+    {
+      "name": "SEC EDGAR",
+      "domains": [
+        "sec.gov"
+      ],
+      "category": "Primary / official",
+      "bias": "Primary / Official",
+      "reliability": "Primary",
+      "owner": "U.S. Securities and Exchange Commission",
+      "notes": "Official filings database (10-K, 10-Q, 8-K, 13D/G, Form 4). Non-partisan primary source - the ground truth behind many stock stories."
+    },
+    {
+      "name": "Federal Reserve",
+      "domains": [
+        "federalreserve.gov"
+      ],
+      "category": "Primary / official",
+      "bias": "Primary / Official",
+      "reliability": "Primary",
+      "owner": "U.S. Federal Reserve",
+      "notes": "FOMC statements, minutes, and speeches. Non-partisan. Rate decisions and guidance move the whole market."
+    },
+    {
+      "name": "Bureau of Labor Statistics",
+      "domains": [
+        "bls.gov"
+      ],
+      "category": "Primary / official",
+      "bias": "Primary / Official",
+      "reliability": "Primary",
+      "owner": "U.S. Department of Labor",
+      "notes": "Jobs report (NFP) and CPI inflation data. Non-partisan primary data; major market-moving releases."
+    },
+    {
+      "name": "Bureau of Economic Analysis",
+      "domains": [
+        "bea.gov"
+      ],
+      "category": "Primary / official",
+      "bias": "Primary / Official",
+      "reliability": "Primary",
+      "owner": "U.S. Department of Commerce",
+      "notes": "GDP, PCE inflation, trade data. Non-partisan primary data with market impact."
+    },
+    {
+      "name": "U.S. Treasury",
+      "domains": [
+        "treasury.gov",
+        "home.treasury.gov"
+      ],
+      "category": "Primary / official",
+      "bias": "Primary / Official",
+      "reliability": "Primary",
+      "owner": "U.S. Department of the Treasury",
+      "notes": "Treasury yields, auctions, and policy. Non-partisan primary source for rates-sensitive sectors."
+    },
+    {
+      "name": "PR Newswire",
+      "domains": [
+        "prnewswire.com"
+      ],
+      "category": "Corporate PR wire",
+      "bias": "Corporate / Promotional",
+      "reliability": "Primary",
+      "owner": "Cision",
+      "notes": "Company press releases (earnings, products, deals). Primary but company-positive/promotional - the company's own framing. Verify claims independently."
+    },
+    {
+      "name": "Business Wire",
+      "domains": [
+        "businesswire.com"
+      ],
+      "category": "Corporate PR wire",
+      "bias": "Corporate / Promotional",
+      "reliability": "Primary",
+      "owner": "Berkshire Hathaway",
+      "notes": "Company press-release distribution. Primary but promotional. Often the original text behind a 'company announced' story."
+    },
+    {
+      "name": "GlobeNewswire",
+      "domains": [
+        "globenewswire.com"
+      ],
+      "category": "Corporate PR wire",
+      "bias": "Corporate / Promotional",
+      "reliability": "Primary",
+      "owner": "Notified / West",
+      "notes": "Company press-release distribution, common for small/mid-caps. Primary but promotional; watch for paid small-cap promotion."
+    },
+    {
+      "name": "Reddit (r/wallstreetbets, r/stocks, r/investing)",
+      "domains": [
+        "reddit.com"
+      ],
+      "category": "Social / UGC",
+      "bias": "User-generated / Sentiment",
+      "reliability": "Mixed / Varies",
+      "owner": "Reddit, Inc.",
+      "notes": "Retail-investor forums. Not editorial bias - a SENTIMENT signal. High meme/squeeze and pump risk; useful for crowd positioning, never as fact."
+    },
+    {
+      "name": "StockTwits",
+      "domains": [
+        "stocktwits.com"
+      ],
+      "category": "Social / UGC",
+      "bias": "User-generated / Sentiment",
+      "reliability": "Mixed / Varies",
+      "owner": "StockTwits, Inc.",
+      "notes": "Ticker-tagged social stream. Sentiment signal (bullish/bearish tags). Promotional and manipulation risk; treat as sentiment only."
+    },
+    {
+      "name": "X / Twitter (FinTwit)",
+      "domains": [
+        "x.com",
+        "twitter.com"
+      ],
+      "category": "Social / UGC",
+      "bias": "User-generated / Sentiment",
+      "reliability": "Mixed / Varies",
+      "owner": "X Corp.",
+      "notes": "Real-time posts from journalists, analysts, and retail ('FinTwit'). Fast but unvetted; verify against primary sources. Sentiment and breaking-rumor signal."
+    }
+  ]
+}
