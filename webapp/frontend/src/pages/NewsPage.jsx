@@ -6,7 +6,7 @@
 // ORIGINAL article (opens in a new tab) — no article body, no summary yet.
 
 import { useEffect, useState } from "react";
-import { fetchWatchlistNews, fetchNews } from "../api";
+import { fetchWatchlistNews, searchNews } from "../api";
 
 // "2026-06-17T10:30:00" → "Jun 17, 2026"
 function formatDate(iso) {
@@ -102,15 +102,15 @@ export default function NewsPage() {
     }
   }
 
-  async function runSearch(symbol) {
-    const t = (symbol || "").trim().toUpperCase();
-    if (!t) return;
+  async function runSearch(term) {
+    const q = (term || "").trim();
+    if (!q) return;
     setLoading(true);
     setError(null);
-    setHeading(`News for ${t}`);
+    setHeading(`Results for "${q}"`);
     setIsHome(false);
     try {
-      setArticles(await fetchNews(t, 30));
+      setArticles(await searchNews(q, 40));
     } catch (err) {
       setError(err.message || "Request failed");
       setArticles([]);
@@ -137,9 +137,9 @@ export default function NewsPage() {
         <input
           type="text"
           value={ticker}
-          onChange={(e) => setTicker(e.target.value.toUpperCase())}
-          placeholder="Search ticker (e.g. AAPL)"
-          className="flex-1 md:flex-none md:w-56 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white uppercase"
+          onChange={(e) => setTicker(e.target.value)}
+          placeholder="Search company, ticker, or keyword"
+          className="flex-1 md:flex-none md:w-64 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white"
         />
         <button
           type="submit"
@@ -175,7 +175,7 @@ export default function NewsPage() {
         <div className="p-8 text-center text-slate-400 border border-slate-800 rounded">
           {isHome
             ? "No stored headlines yet — add a NEWS_API_KEY and run the news scheduler to populate the watchlist feed."
-            : `No news stored for ${heading.replace("News for ", "")} yet.`}
+            : "No headlines match that search."}
         </div>
       )}
 

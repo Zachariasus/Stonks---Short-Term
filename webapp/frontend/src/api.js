@@ -56,6 +56,17 @@ export async function fetchNews(ticker, limit = 20) {
   }
 }
 
+// GET /news-search — broad search by company name, ticker, or keyword.
+export async function searchNews(q, limit = 30) {
+  try {
+    const { data } = await client.get("/news-search", { params: { q, limit } });
+    return data;
+  } catch (err) {
+    console.error(`searchNews(${q}) failed:`, err);
+    throw err;
+  }
+}
+
 // POST /grade — full AI grade + position sizing for one ticker.
 export async function gradeStock(ticker, accountSize = 50000, riskPct = 0.01) {
   try {

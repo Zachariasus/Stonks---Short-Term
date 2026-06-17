@@ -313,6 +313,61 @@ def get_relevant_news(ticker, min_relevance=40, limit=10) -> list:
         session.close()
 
 
+def search_news(query, limit=30) -> list:
+    """Broad news search: match by ticker, company NAME, or words in the headline.
+
+    Resolves the query to tickers two ways — an exact ticker symbol, and any
+    company whose name contains the query (so "apple" → AAPL via "Apple Inc.") —
+    then returns stored articles for those tickers OR whose headline contains the
+    query text. Newest first. Case-insensitive.
+    """
+    from sqlalchemy import func, or_
+
+    q = (query or "").strip()
+    if not q:
+        return []
+    ql = q.lower()
+
+    session = get_session()
+    try:
+        # Tickers to include: exact symbol + any company name containing the query.
+        tickers = {q.upper()}
+        name_rows = (
+            session.query(TickerUniverse.ticker)
+            .filter(func.lower(TickerUniverse.company_name).like(f"%{ql}%"))
+            .all()
+        )
+        tickers.update(t[0] for t in name_rows)
+
+        rows = (
+            session.query(NewsArticle)
+            .filter(
+                or_(
+                    NewsArticle.ticker.in_(tickers),
+                    func.lower(NewsArticle.title).like(f"%{ql}%"),
+                )
+            )
+            .order_by(NewsArticle.published_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "ticker": r.ticker,
+                "url": r.url,
+                "title": r.title,
+                "source": r.source,
+                "published_at": r.published_at,
+                "content_snippet": r.content_snippet,
+                "sentiment_label": r.sentiment_label,
+                "relevance_score": r.relevance_score,
+            }
+            for r in rows
+        ]
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     from datetime import datetime
 

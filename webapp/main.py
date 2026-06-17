@@ -41,7 +41,7 @@ from data.database import init_db  # noqa: E402
 from data.db_reader import get_price_bars  # noqa: E402
 from grader.ai_grader import grade_stock  # noqa: E402
 from grader.position_sizer import calculate_full_risk_profile  # noqa: E402
-from news.relevance_scorer import get_relevant_news  # noqa: E402
+from news.relevance_scorer import get_relevant_news, search_news  # noqa: E402
 from news.source_bias import lookup as bias_lookup  # noqa: E402
 from screener.flag_generator import get_active_flags  # noqa: E402
 
@@ -253,6 +253,13 @@ def watchlist_news(limit: int = 40, per_ticker: int = 8, min_relevance: int = 30
         if len(out) >= limit:
             break
     return [NewsArticleResponse.model_validate(a) for a in out]
+
+
+@app.get("/news-search", response_model=List[NewsArticleResponse])
+def news_search(q: str = "", limit: int = 30):
+    """Broad headline search by company name, ticker, or keyword ([] if none)."""
+    articles = search_news(q, limit=limit)
+    return [NewsArticleResponse.model_validate(_enrich_news(a)) for a in articles]
 
 
 @app.get("/news/{ticker}", response_model=List[NewsArticleResponse])
