@@ -25,6 +25,9 @@ project_timeline.html
 
 # --- Local database (rebuildable from the fetchers; can grow large) ---
 *.db
+# SQLite WAL-mode sidecar files (created at runtime; never commit)
+*.db-wal
+*.db-shm
 
 # --- Frontend (React/Vite) ---
 # node_modules is rebuildable — never commit it. The built frontend (dist/) IS
