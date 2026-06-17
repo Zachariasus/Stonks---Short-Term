@@ -91,7 +91,9 @@ class FlagResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     ticker: str
-    flagged_date: Optional[date] = None
+    flagged_date: Optional[date] = None        # stable original entry date
+    stage_start_date: Optional[date] = None     # start of the current stage run (span start)
+    last_seen_date: Optional[date] = None       # most recent qualifying scan (span end)
     score: Optional[int] = None
     confidence_label: Optional[str] = None
     direction: Optional[str] = None

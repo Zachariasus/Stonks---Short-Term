@@ -61,6 +61,37 @@ def _flag_exists(ticker, flagged_date, direction) -> bool:
         session.close()
 
 
+def _stage_str(score_dict) -> str:
+    """Build the readable stage label ("Stage 2 — Advancing") from a score dict."""
+    stage_int = _na_to_none(score_dict.get("stage"))
+    try:
+        stage_int = int(stage_int) if stage_int is not None else None
+    except (TypeError, ValueError):
+        stage_int = None
+    return (
+        f"Stage {stage_int} — {STAGE_LABELS[stage_int]}"
+        if stage_int in STAGE_LABELS
+        else "Unknown"
+    )
+
+
+def _apply_live_fields(flag, score_dict) -> None:
+    """Refresh an existing flag's CURRENT-state fields from today's screen.
+
+    Updates the values that legitimately move day to day (score, confidence, RS,
+    sector rotation, earnings timing). Does NOT touch entry/target/stop/rr — those
+    are fixed at the original entry. Stage + the date span are handled by the
+    caller (sync_flags_from_screen).
+    """
+    flag.score = int(_na_to_none(score_dict.get("total_score")) or 0)
+    flag.confidence_label = _na_to_none(score_dict.get("confidence_label"))
+    flag.rs_label = _na_to_none(score_dict.get("rs_label"))
+    flag.sector_etf = _na_to_none(score_dict.get("sector_etf"))
+    flag.sector_rotation_label = _na_to_none(score_dict.get("sector_rotation_label"))
+    flag.earnings_flag = get_earnings_flag(flag.ticker)
+    flag.days_to_earnings = get_days_to_earnings(flag.ticker)
+
+
 def generate_flag(score_dict, target_price=None):
     """Create (or fetch the existing) Flag row from a score_stock() dict.
 
@@ -105,21 +136,14 @@ def generate_flag(score_dict, target_price=None):
             if rr:
                 rr_ratio = rr["rr_ratio"]
 
-        # Build a readable stage label ("Stage 2 — Advancing") from the int.
-        stage_int = _na_to_none(score_dict.get("stage"))
-        try:
-            stage_int = int(stage_int) if stage_int is not None else None
-        except (TypeError, ValueError):
-            stage_int = None
-        stage_str = (
-            f"Stage {stage_int} — {STAGE_LABELS[stage_int]}"
-            if stage_int in STAGE_LABELS
-            else "Unknown"
-        )
+        # Readable stage label ("Stage 2 — Advancing").
+        stage_str = _stage_str(score_dict)
 
         flag = Flag(
             ticker=ticker,
             flagged_date=today,
+            stage_start_date=today,  # span start (resets on a stage change)
+            last_seen_date=today,    # span end (advances each scan it still qualifies)
             score=int(score_dict.get("total_score") or 0),
             confidence_label=_na_to_none(score_dict.get("confidence_label")),
             direction=direction,
@@ -177,6 +201,82 @@ def flag_screener_results(screener_df, min_score_long: int = 70, min_score_short
         else:
             summary["new_flags"] += 1
             summary["flagged_tickers"].append(ticker)
+
+    return summary
+
+
+def sync_flags_from_screen(screener_df, min_score_long: int = 70, min_score_short: int = 70) -> dict:
+    """Reconcile the Active flag watchlist against today's screen (the daily flow).
+
+    This replaces the old "one new flag row per ticker per day" behaviour with a
+    living watchlist. For each stock that still qualifies (score ≥ its threshold):
+      • no Active flag yet   → CREATE one (flagged_date = stage_start = last_seen = today).
+      • SAME stage as before → EXTEND: advance last_seen_date to today and refresh the
+                               live fields — the flagged-date span grows by a day.
+      • stage CHANGED        → RESET the span: stage_start_date = today (and update the
+                               stored stage), keeping the original flagged_date (the
+                               stable entry the tax/exit logic depends on).
+    Active flags whose ticker was screened today but no longer qualifies are CLOSED.
+    A flag whose ticker wasn't screened at all (data gap) is left untouched — we
+    never close on the mere absence of data.
+
+    Returns {new, extended, reset, closed}.
+    """
+    summary = {"new": 0, "extended": 0, "reset": 0, "closed": 0}
+    if screener_df is None or screener_df.empty:
+        return summary  # don't wipe the watchlist on an empty/failed screen
+
+    today = date.today()
+    init_db()
+
+    # Index the screen: every ticker that was scored, and the subset that qualifies.
+    screened_tickers = set()
+    qualifying = {}  # (ticker, direction) -> score_dict
+    for _, row in screener_df.iterrows():
+        sd = row.to_dict()
+        ticker = str(sd.get("ticker")).strip().upper()
+        screened_tickers.add(ticker)
+        direction = sd.get("direction")
+        score = _na_to_none(sd.get("total_score")) or 0
+        if (direction == "Long" and score >= min_score_long) or (
+            direction == "Short" and score >= min_score_short
+        ):
+            qualifying[(ticker, direction)] = sd
+
+    session = get_session()
+    handled = set()
+    try:
+        for flag in session.query(Flag).filter(Flag.status == "Active").all():
+            key = (flag.ticker, flag.direction)
+            if key in qualifying:
+                sd = qualifying[key]
+                new_stage = _stage_str(sd)
+                _apply_live_fields(flag, sd)
+                flag.last_seen_date = today
+                if flag.stage != new_stage:
+                    flag.stage = new_stage
+                    flag.stage_start_date = today  # stage changed → restart the span
+                    summary["reset"] += 1
+                else:
+                    summary["extended"] += 1
+                handled.add(key)
+            elif flag.ticker in screened_tickers:
+                # Screened today but no longer qualifies (score fell / direction flipped).
+                flag.status = "Closed"
+                flag.close_date = today
+                flag.close_reason = "No longer meets flag criteria"
+                summary["closed"] += 1
+            # else: not screened this run (data gap) → leave the flag untouched.
+        session.commit()
+    finally:
+        session.close()
+
+    # Create flags for newly-qualifying stocks that had no Active flag (own session).
+    for key, sd in qualifying.items():
+        if key in handled:
+            continue
+        generate_flag(sd)
+        summary["new"] += 1
 
     return summary
 

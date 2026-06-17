@@ -188,21 +188,19 @@ def refresh_all_data() -> dict:
     # screening error can never break the data refresh.
     screen_summary = None
     try:
-        from screener.flag_generator import flag_screener_results
+        from screener.flag_generator import sync_flags_from_screen
         from screener.screener import run_screener
 
         print()  # spacer
         screen_df = run_screener()  # scores the full scoreable universe
-        flag_result = flag_screener_results(screen_df)
-        screen_summary = {
-            "scored": 0 if screen_df is None else len(screen_df),
-            "new_flags": flag_result["new_flags"],
-            "skipped_existing": flag_result["skipped_existing"],
-        }
+        sync = sync_flags_from_screen(screen_df)  # extend / reset / close / create
+        screen_summary = {"scored": 0 if screen_df is None else len(screen_df), **sync}
         print(
             f"  Stocks scored                : {screen_summary['scored']}\n"
-            f"  New flags generated          : {screen_summary['new_flags']}\n"
-            f"  Flags already present        : {screen_summary['skipped_existing']}"
+            f"  New flags                    : {sync['new']}\n"
+            f"  Spans extended (same stage)  : {sync['extended']}\n"
+            f"  Spans reset (stage changed)  : {sync['reset']}\n"
+            f"  Flags closed (dropped out)   : {sync['closed']}"
         )
     except Exception as err:  # noqa: BLE001 - data refresh must survive a screening error
         print(f"⚠️  Screening/flagging failed (data refresh unaffected): {err}")

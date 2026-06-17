@@ -6,6 +6,8 @@
 //
 // NOTE: the <td> order MUST match the column order defined in FlagsPage.
 
+import { fmtSpan } from "../format";
+
 // Format a dollar value, or an em-dash when missing.
 function money(v) {
   return v == null ? "—" : `$${Number(v).toFixed(2)}`;
@@ -58,7 +60,7 @@ export default function FlagCard({ flag }) {
       <td className="px-3 py-2 text-slate-300">{num(flag.rr_ratio)}</td>
       <td className="px-3 py-2 whitespace-nowrap">{earnings}</td>
       <td className="px-3 py-2 text-slate-400 whitespace-nowrap">
-        {flag.flagged_date ?? "—"}
+        {fmtSpan(flag.stage_start_date, flag.last_seen_date)}
       </td>
     </tr>
   );

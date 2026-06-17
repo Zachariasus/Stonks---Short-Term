@@ -234,7 +234,14 @@ class Flag(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     ticker = Column(String, index=True, nullable=False)
+    # flagged_date = the ORIGINAL entry/first-flag date. Stable for the life of the
+    # flag — the tax module and the ATR exit anchor depend on it not moving.
     flagged_date = Column(Date, index=True, default=date.today)
+    # The "flagged span" shown on the watchlist: how long the stock has been flagged
+    # in its CURRENT stage. stage_start_date resets to today whenever the stage
+    # changes; last_seen_date advances to today on every scan it still qualifies.
+    stage_start_date = Column(Date, nullable=True)
+    last_seen_date = Column(Date, nullable=True)
     score = Column(Integer)
     confidence_label = Column(String)        # "High" / "Medium" / "Low"
     direction = Column(String)               # "Long" / "Short"

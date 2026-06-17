@@ -15,6 +15,7 @@ import {
 
 import { fetchFlags } from "../api";
 import FlagCard from "../components/FlagCard";
+import { fmtSpan } from "../format";
 
 // Column model drives the sortable headers. accessorKey points at the Flag field
 // (numeric fields sort numerically, strings alphabetically). The cells themselves
@@ -32,7 +33,7 @@ const COLUMNS = [
   { accessorKey: "suggested_stop", header: "Stop" },
   { accessorKey: "rr_ratio", header: "R:R" },
   { accessorKey: "days_to_earnings", header: "Earnings" },
-  { accessorKey: "flagged_date", header: "Flagged Date" },
+  { accessorKey: "stage_start_date", header: "Flagged" },
 ];
 
 function money(v) {
@@ -82,16 +83,24 @@ function MobileFlagCard({ flag }) {
         {flag.rr_ratio != null && <span>R:R {flag.rr_ratio.toFixed(1)}x</span>}
       </div>
 
-      {/* Row 4: earnings */}
-      <div className="mt-1 text-xs">
-        <span className="text-slate-500">Earnings: </span>
-        {days == null ? (
-          <span className="text-slate-500">—</span>
-        ) : (
-          <span className={days < 30 ? "text-orange-400 font-medium" : "text-slate-400"}>
-            {days}d
+      {/* Row 4: earnings + flagged span */}
+      <div className="mt-1 text-xs flex flex-wrap gap-x-4 gap-y-1">
+        <span>
+          <span className="text-slate-500">Earnings: </span>
+          {days == null ? (
+            <span className="text-slate-500">—</span>
+          ) : (
+            <span className={days < 30 ? "text-orange-400 font-medium" : "text-slate-400"}>
+              {days}d
+            </span>
+          )}
+        </span>
+        <span>
+          <span className="text-slate-500">Flagged: </span>
+          <span className="text-slate-400">
+            {fmtSpan(flag.stage_start_date, flag.last_seen_date)}
           </span>
-        )}
+        </span>
       </div>
     </div>
   );
