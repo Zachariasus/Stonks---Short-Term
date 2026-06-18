@@ -260,6 +260,20 @@ def list_stocks(flagged_only: bool = False):
     return [StockRowResponse.model_validate(r) for r in rows]
 
 
+@app.get("/stocks/{ticker}", response_model=StockRowResponse)
+def get_stock(ticker: str):
+    """One S&P 500 stock's overview row — the Stock Profile page's snapshot source.
+
+    Same shape as a /stocks row (screen read + flag enrichment), for a single
+    ticker. 404 if the ticker isn't in the tracked universe.
+    """
+    ticker = ticker.strip().upper()
+    match = next((r for r in get_stocks_overview() if r["ticker"] == ticker), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail=f"{ticker} is not in the tracked universe")
+    return StockRowResponse.model_validate(match)
+
+
 def _enrich_news(article: dict) -> dict:
     """Add outlet/bias/reliability to a stored-article dict (read-time tagging)."""
     tag = bias_lookup(url=article.get("url"), source_name=article.get("source"))

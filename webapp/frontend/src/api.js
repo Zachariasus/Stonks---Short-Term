@@ -47,6 +47,17 @@ export async function fetchStocks(flaggedOnly = false) {
   }
 }
 
+// GET /stocks/{ticker} — one stock's overview row (the Stock Profile snapshot).
+export async function fetchStock(ticker) {
+  try {
+    const { data } = await client.get(`/stocks/${ticker}`);
+    return data;
+  } catch (err) {
+    console.error(`fetchStock(${ticker}) failed:`, err);
+    throw err;
+  }
+}
+
 // GET /watchlist-news — the home feed: news across the flagged stocks.
 export async function fetchWatchlistNews(limit = 40) {
   try {

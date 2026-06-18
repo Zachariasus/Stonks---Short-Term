@@ -10,6 +10,7 @@
 // responsive prefixes — no JS branching.
 
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   useReactTable,
   getCoreRowModel,
@@ -47,6 +48,7 @@ function money(v) {
 
 // Compact card used on mobile (<768px) in place of the wide table row.
 function MobileStockCard({ stock }) {
+  const navigate = useNavigate();
   const isLong = stock.direction === "Long";
   const directionClass = isLong
     ? "bg-green-500/20 text-green-400"
@@ -67,7 +69,10 @@ function MobileStockCard({ stock }) {
   const days = stock.days_to_earnings;
 
   return (
-    <div className="border border-slate-800 rounded-lg p-4 bg-slate-800/30">
+    <div
+      onClick={() => navigate(`/stock/${stock.ticker}`)}
+      className="border border-slate-800 rounded-lg p-4 bg-slate-800/30 cursor-pointer active:bg-slate-800/60"
+    >
       {/* Row 1: ticker (+flag star) + direction + score */}
       <div className="flex items-center gap-3">
         <span className="text-lg font-bold text-white">

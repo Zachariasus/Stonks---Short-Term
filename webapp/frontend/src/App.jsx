@@ -1,10 +1,12 @@
 // src/App.jsx
 // ===========
-// App shell + client-side routing (React Router). Four routes:
-//   /        → Stocks         (StocksPage — every S&P 500 name, flag is a filter)
-//   /news    → News Feed       (NewsPage)
-//   /grader  → Stock Grader    (GraderPage)
-//   /sectors → Sector Rankings (SectorPage)
+// App shell + client-side routing (React Router). Routes:
+//   /              → Stocks          (StocksPage — every S&P 500 name, flag is a filter)
+//   /stock         → Stock Profile   (search landing)
+//   /stock/:ticker → Stock Profile   (grade + snapshot + news for one name)
+//   /news          → News Feed       (NewsPage)
+//   /grader        → Stock Grader    (GraderPage)
+//   /sectors       → Sector Rankings (SectorPage)
 // Desktop: horizontal nav on the right. Mobile (<768px): a hamburger (☰) that
 // toggles a dropdown (closes on link click). Dark slate theme, green accents.
 
@@ -12,21 +14,25 @@ import { useState } from "react";
 import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
 
 import StocksPage from "./pages/StocksPage";
+import StockProfilePage from "./pages/StockProfilePage";
 import NewsPage from "./pages/NewsPage";
 import GraderPage from "./pages/GraderPage";
 import SectorPage from "./pages/SectorPage";
 
 const NAV = [
   { to: "/", label: "Stocks" },
+  { to: "/stock", label: "Profile" },
   { to: "/news", label: "News Feed" },
   { to: "/grader", label: "Stock Grader" },
   { to: "/sectors", label: "Sectors" },
 ];
 
-// A nav link that underlines itself when its route is active.
+// A nav link that underlines itself when its route is active. For nested routes
+// (e.g. /stock/:ticker under the "Profile" tab) a non-root link also matches its
+// sub-paths, so the tab stays highlighted on a profile page.
 function NavLink({ to, children, onClick }) {
   const { pathname } = useLocation();
-  const active = pathname === to;
+  const active = pathname === to || (to !== "/" && pathname.startsWith(to + "/"));
   return (
     <Link
       to={to}
@@ -114,6 +120,11 @@ export default function App() {
                 </>
               }
             />
+            {/* Stock Profile renders its own header (back-link + ticker), so it
+                skips the generic PageHeading. Both the search landing (/stock)
+                and a specific name (/stock/:ticker) use the same component. */}
+            <Route path="/stock" element={<StockProfilePage />} />
+            <Route path="/stock/:ticker" element={<StockProfilePage />} />
             <Route
               path="/news"
               element={
