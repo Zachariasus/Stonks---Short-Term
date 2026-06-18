@@ -18,6 +18,7 @@ import StockProfilePage from "./pages/StockProfilePage";
 import NewsPage from "./pages/NewsPage";
 import GraderPage from "./pages/GraderPage";
 import SectorPage from "./pages/SectorPage";
+import SectorProfilePage from "./pages/SectorProfilePage";
 
 const NAV = [
   { to: "/", label: "Stocks" },
@@ -161,6 +162,9 @@ export default function App() {
                 </>
               }
             />
+            {/* Sector Profile renders its own header; nested under /sectors so
+                the Sectors tab stays highlighted. */}
+            <Route path="/sectors/:etf" element={<SectorProfilePage />} />
           </Routes>
         </main>
       </div>

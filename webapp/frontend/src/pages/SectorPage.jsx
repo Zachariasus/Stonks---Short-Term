@@ -5,6 +5,7 @@
 // list. Mobile hides the 3m/6m columns, keeping 12m + Composite.
 
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { fetchSectorRankings } from "../api";
 
 // Signed percentage-point value, or em-dash.
@@ -25,6 +26,7 @@ function compositeClass(v) {
 }
 
 export default function SectorPage() {
+  const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -84,9 +86,14 @@ export default function SectorPage() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.etf_ticker} className="border-b border-slate-800 hover:bg-slate-800/40">
+              <tr
+                key={r.etf_ticker}
+                onClick={() => navigate(`/sectors/${r.etf_ticker}`)}
+                className="border-b border-slate-800 hover:bg-slate-800/40 cursor-pointer"
+                title={`View ${r.sector_name} sector profile`}
+              >
                 <td className="px-3 py-2 text-slate-400">{r.rank}</td>
-                <td className="px-3 py-2 text-white">{r.sector_name}</td>
+                <td className="px-3 py-2 text-white hover:text-green-400">{r.sector_name}</td>
                 <td className="px-3 py-2 text-slate-300">{r.etf_ticker}</td>
                 <td className="px-3 py-2 text-right text-slate-300 hidden md:table-cell">{fmtPP(r.rs_3m)}</td>
                 <td className="px-3 py-2 text-right text-slate-300 hidden md:table-cell">{fmtPP(r.rs_6m)}</td>
