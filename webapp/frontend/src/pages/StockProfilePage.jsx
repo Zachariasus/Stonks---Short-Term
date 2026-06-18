@@ -11,7 +11,7 @@
 // Each section loads independently: the fast snapshot paints immediately, while
 // the slow /grade pipeline and the news fetch fill in with their own spinners.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 
 import { fetchStock, gradeStock, fetchNews } from "../api";
@@ -47,13 +47,131 @@ const BIAS_CLASS = {
   "User-generated / Sentiment": "bg-purple-500/20 text-purple-300",
 };
 
+// --- stat explanations -----------------------------------------------------
+// Brief, plain-language overview of what each stat represents. Shown in the
+// click-to-toggle info box. Keep these short — a sentence or two each.
+const STAT_INFO = {
+  score:
+    "The system's overall 0–100 conviction score for the setup, blending all four engines below. Higher is stronger — roughly ≥70 is high conviction, 50–69 moderate, and under 50 weak.",
+  confidence:
+    "A plain-language band for the confluence score (High / Medium / Low) that reflects both the total score and how many engines agree.",
+  direction:
+    "Which side the setup favors: Long (positioned to rise — typically a healthy Stage 2 uptrend) or Short (positioned to fall — typically a Stage 4 downtrend).",
+  stage:
+    "Where the stock sits in the Weinstein market cycle: Stage 1 Basing (flat, after a decline), Stage 2 Advancing (uptrend — best for longs), Stage 3 Topping (stalling after a run), Stage 4 Declining (downtrend — short candidate).",
+  rs:
+    "Relative strength versus the broad market (S&P 500): a Leader is outperforming, a Laggard is underperforming. Leaders are preferred for longs, laggards for shorts.",
+  sector:
+    "The sector this stock belongs to, shown by its sector ETF (e.g. XLK = Technology, XLE = Energy, XLB = Materials). Used to judge whether its sector is in or out of favor.",
+  rotation:
+    "Whether money is rotating into or out of this stock's sector right now, based on the sector's relative strength — e.g. Leading (in favor) vs. Lagging (out of favor).",
+  flagged:
+    "The span of dates the stock has continuously met the flag criteria in its current stage. It resets when the stage changes. \"Not flagged\" means it doesn't currently clear the threshold.",
+};
+
+// The four confluence engines (and their point maxes).
+const ENGINE_INFO = {
+  e1:
+    "Engine 1 — Trend & Momentum (up to 35 pts, the largest engine). Scores the price trend itself: the Weinstein stage, moving-average alignment, and relative strength. This is the technical backbone of the setup.",
+  e2:
+    "Engine 2 — Fundamental Trajectory (up to 25 pts). Scores the direction of the business: earnings and revenue growth, margin trends, and estimate revisions — i.e. whether the fundamentals are improving or deteriorating.",
+  e3:
+    "Engine 3 — Top-Down / Rotation (up to 25 pts). Scores the backdrop: the market's macro cycle phase and whether this stock's sector is being rotated into or out of. A strong stock in a strong sector scores higher.",
+  e4:
+    "Engine 4 — Valuation (up to 15 pts, the smallest engine). Scores how cheap or expensive the stock is on multiples like P/E and EV/EBITDA versus its own history. A tie-breaker, not the main driver.",
+};
+
 // --- shared little pieces --------------------------------------------------
-function Stat({ label, value, valueClass = "text-white" }) {
+// A tiny "i" affordance so it's obvious a stat is tappable for an explanation.
+function InfoDot() {
   return (
-    <div className="border border-slate-700 rounded-lg px-3 py-2 bg-slate-800/40">
-      <div className="text-xs text-slate-400">{label}</div>
-      <div className={`text-sm font-semibold ${valueClass}`}>{value ?? "—"}</div>
+    <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-slate-500 text-[9px] font-bold leading-none text-slate-400">
+      i
+    </span>
+  );
+}
+
+// Click-to-toggle explanation box. Click the trigger to open a small floating
+// "quote box" with `info`; click it again, click outside, or press Escape to
+// close. It flips to the right edge when the trigger sits in the right half of
+// the screen, so the box never runs off-screen on a phone.
+function InfoPopover({ info, children, buttonClassName }) {
+  const [open, setOpen] = useState(false);
+  const [alignRight, setAlignRight] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    if (!open && ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setAlignRight(r.left > window.innerWidth / 2);
+    }
+    setOpen((o) => !o);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        className={`${buttonClassName} ${open ? "ring-1 ring-green-500/50" : ""}`}
+      >
+        {children}
+      </button>
+      {open && (
+        <div
+          role="tooltip"
+          className={`absolute z-30 top-full mt-1 ${
+            alignRight ? "right-0" : "left-0"
+          } w-64 max-w-[calc(100vw-1.5rem)] rounded-lg border border-slate-600 bg-slate-900 p-3 text-xs leading-relaxed text-slate-200 shadow-xl`}
+        >
+          {info}
+        </div>
+      )}
     </div>
+  );
+}
+
+function Stat({ label, value, valueClass = "text-white", info }) {
+  const body = (
+    <>
+      <div className="text-xs text-slate-400 flex items-center gap-1">
+        {label}
+        {info && <InfoDot />}
+      </div>
+      <div className={`text-sm font-semibold ${valueClass}`}>{value ?? "—"}</div>
+    </>
+  );
+
+  // Plain (non-explained) stat — e.g. the position-sizing boxes.
+  if (!info) {
+    return <div className="border border-slate-700 rounded-lg px-3 py-2 bg-slate-800/40">{body}</div>;
+  }
+
+  // Explained stat — the whole box is a click target for its info popover.
+  return (
+    <InfoPopover
+      info={info}
+      buttonClassName="w-full text-left border border-slate-700 rounded-lg px-3 py-2 bg-slate-800/40 hover:border-slate-500 transition-colors"
+    >
+      {body}
+    </InfoPopover>
   );
 }
 
@@ -146,19 +264,23 @@ function Snapshot({ stock }) {
 
   return (
     <div className="border border-slate-800 rounded-lg p-4 md:p-6 bg-slate-800/30">
-      <h2 className="text-lg font-semibold mb-4">Screen Snapshot</h2>
+      <div className="flex items-baseline gap-2 mb-4">
+        <h2 className="text-lg font-semibold">Screen Snapshot</h2>
+        <span className="text-xs text-slate-500">tap a stat to learn what it means</span>
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Confluence score" value={score == null ? "—" : `${score}/100`} valueClass={scoreClass} />
-        <Stat label="Confidence" value={stock.confidence_label} />
-        <Stat label="Direction" value={stock.direction} valueClass={dirClass} />
-        <Stat label="Stage" value={stock.stage} />
-        <Stat label="Relative strength" value={stock.rs_label} />
-        <Stat label="Sector ETF" value={stock.sector_etf} />
-        <Stat label="Sector rotation" value={stock.sector_rotation_label} />
+        <Stat label="Confluence score" value={score == null ? "—" : `${score}/100`} valueClass={scoreClass} info={STAT_INFO.score} />
+        <Stat label="Confidence" value={stock.confidence_label} info={STAT_INFO.confidence} />
+        <Stat label="Direction" value={stock.direction} valueClass={dirClass} info={STAT_INFO.direction} />
+        <Stat label="Stage" value={stock.stage} info={STAT_INFO.stage} />
+        <Stat label="Relative strength" value={stock.rs_label} info={STAT_INFO.rs} />
+        <Stat label="Sector ETF" value={stock.sector_etf} info={STAT_INFO.sector} />
+        <Stat label="Sector rotation" value={stock.sector_rotation_label} info={STAT_INFO.rotation} />
         <Stat
           label="Flagged"
           value={stock.is_flagged ? fmtSpan(stock.stage_start_date, stock.last_seen_date) : "Not flagged"}
           valueClass={stock.is_flagged ? "text-green-400" : "text-slate-400"}
+          info={STAT_INFO.flagged}
         />
       </div>
     </div>
@@ -236,18 +358,40 @@ function GradeSection({ grade, loading, error }) {
 
       {/* Confluence engines */}
       <div>
-        <div className="flex items-baseline justify-between mb-3">
-          <div className="text-sm font-semibold text-slate-300">Confluence engines</div>
+        <div className="flex items-baseline justify-between gap-2 mb-3">
+          <div className="flex items-baseline gap-2">
+            <div className="text-sm font-semibold text-slate-300">Confluence engines</div>
+            <span className="text-xs text-slate-500">tap to learn what each scores</span>
+          </div>
           <div>
             <span className="text-xl font-bold text-white">{grade.confluence_score ?? "—"}</span>
             <span className="text-slate-500"> / 100</span>
           </div>
         </div>
-        <div className="flex flex-col gap-2">
-          <EngineBar label="E1 Trend & Momentum" pts={grade.engine_1_pts} max={35} />
-          <EngineBar label="E2 Fundamental Traj." pts={grade.engine_2_pts} max={25} />
-          <EngineBar label="E3 Top-Down / Rotation" pts={grade.engine_3_pts} max={25} />
-          <EngineBar label="E4 Valuation" pts={grade.engine_4_pts} max={15} />
+        <div className="flex flex-col gap-1">
+          {[
+            { label: "E1 Trend & Momentum", pts: grade.engine_1_pts, max: 35, info: ENGINE_INFO.e1 },
+            { label: "E2 Fundamental Traj.", pts: grade.engine_2_pts, max: 25, info: ENGINE_INFO.e2 },
+            { label: "E3 Top-Down / Rotation", pts: grade.engine_3_pts, max: 25, info: ENGINE_INFO.e3 },
+            { label: "E4 Valuation", pts: grade.engine_4_pts, max: 15, info: ENGINE_INFO.e4 },
+          ].map((e) => (
+            <InfoPopover
+              key={e.label}
+              info={e.info}
+              buttonClassName="block w-full text-left rounded px-2 py-1.5 hover:bg-slate-800/60 transition-colors"
+            >
+              <EngineBar
+                label={
+                  <span className="inline-flex items-center gap-1">
+                    {e.label}
+                    <InfoDot />
+                  </span>
+                }
+                pts={e.pts}
+                max={e.max}
+              />
+            </InfoPopover>
+          ))}
         </div>
       </div>
 
