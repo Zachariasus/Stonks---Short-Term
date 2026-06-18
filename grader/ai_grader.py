@@ -32,8 +32,35 @@ except ImportError:  # pragma: no cover
     from data.config import ANTHROPIC_API_KEY
     from grader.analysis_pipeline import format_analysis_report, run_full_analysis
 
-# Fast, cost-effective Claude model for this structured grading task.
-GRADER_MODEL = "claude-haiku-4-5-20251001"
+# Claude model for the grade. Opus is the strong default here: grading is a
+# nuanced synthesis task (reconciling conflicting engine signals into one letter
+# grade), and each grade is a single on-demand call, so the cost is trivial.
+# Swap to "claude-haiku-4-5" if you'd rather have cheaper, faster grades.
+GRADER_MODEL = "claude-opus-4-8"
+
+# JSON Schema for the grade. Passed as a structured-output format so the API
+# GUARANTEES a valid, parseable object back — no reliance on the model
+# remembering to avoid markdown fences, no fragile regex scraping.
+GRADE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "grade": {"type": "string", "enum": ["A", "B", "C", "D"]},
+        "one_line_verdict": {"type": "string"},
+        "bull_case": {"type": "string"},
+        "bear_case": {"type": "string"},
+        "key_risks": {"type": "array", "items": {"type": "string"}},
+        "suggested_action": {"type": "string"},
+    },
+    "required": [
+        "grade",
+        "one_line_verdict",
+        "bull_case",
+        "bear_case",
+        "key_risks",
+        "suggested_action",
+    ],
+    "additionalProperties": False,
+}
 
 # The grading criteria — kept here so every call uses the exact same rubric.
 GRADE_RUBRIC = """A — High conviction. 3–4 engines aligned, score >= 70, confirmed trend,
@@ -134,7 +161,9 @@ def call_claude_grader(prompt: str) -> dict:
         client = anthropic.Anthropic(api_key=key)
         message = client.messages.create(
             model=GRADER_MODEL,
-            max_tokens=1024,
+            max_tokens=4096,  # headroom for adaptive thinking + the JSON grade
+            thinking={"type": "adaptive"},  # let it reason through conflicting signals
+            output_config={"format": {"type": "json_schema", "schema": GRADE_SCHEMA}},
             messages=[{"role": "user", "content": prompt}],
         )
         text = "".join(
