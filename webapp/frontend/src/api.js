@@ -34,6 +34,19 @@ export async function fetchFlags(direction = null, minScore = 0) {
   }
 }
 
+// GET /stocks — every S&P 500 stock with its latest screen read (flagged enriched).
+// The page filters client-side, so we fetch the full set by default.
+export async function fetchStocks(flaggedOnly = false) {
+  try {
+    const params = flaggedOnly ? { flagged_only: true } : {};
+    const { data } = await client.get("/stocks", { params });
+    return data;
+  } catch (err) {
+    console.error("fetchStocks failed:", err);
+    throw err;
+  }
+}
+
 // GET /watchlist-news — the home feed: news across the flagged stocks.
 export async function fetchWatchlistNews(limit = 40) {
   try {

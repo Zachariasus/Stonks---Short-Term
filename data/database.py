@@ -267,6 +267,31 @@ class Flag(Base):
     )
 
 
+class StockScreen(Base):
+    """One row = the LATEST confluence-screen result for a ticker (whole universe).
+
+    The flags table only stores stocks that cleared the flag threshold; this table
+    is the full picture — every scoreable S&P 500 name and where it currently sits
+    in the framework. It powers the Stocks page (every stock, default-filtered to
+    the flagged subset). One row per ticker: the daily refresh REPLACES the snapshot
+    (save_screen_snapshot), so this is always "as of the last screen", not history.
+    """
+
+    __tablename__ = "stock_screen"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String, unique=True, index=True, nullable=False)
+    screened_date = Column(Date, default=date.today)  # when this snapshot was scored
+    score = Column(Integer, nullable=True)            # total confluence score (0–100)
+    confidence_label = Column(String, nullable=True)  # "High" / "Medium" / "Low"
+    direction = Column(String, nullable=True)         # "Long" / "Short"
+    stage = Column(String, nullable=True)             # readable label, matches flags
+    rs_label = Column(String, nullable=True)
+    sector_etf = Column(String, nullable=True)
+    sector_rotation_label = Column(String, nullable=True)
+    engines_firing = Column(Integer, nullable=True)   # how many of the 4 engines fired
+
+
 class NewsArticle(Base):
     """One row = one news article relevant to a ticker.
 

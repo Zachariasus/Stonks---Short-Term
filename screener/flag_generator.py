@@ -23,7 +23,7 @@ try:
     from analysis.earnings_calendar import get_days_to_earnings, get_earnings_flag
     from analysis.price_target import calculate_price_target, calculate_reward_risk
     from analysis.stage_classifier import STAGE_LABELS
-    from data.database import Flag, get_session, init_db
+    from data.database import Flag, StockScreen, TickerUniverse, get_session, init_db
     from data.db_reader import get_price_bars
 except ImportError:  # pragma: no cover
     import sys
@@ -33,7 +33,7 @@ except ImportError:  # pragma: no cover
     from analysis.earnings_calendar import get_days_to_earnings, get_earnings_flag
     from analysis.price_target import calculate_price_target, calculate_reward_risk
     from analysis.stage_classifier import STAGE_LABELS
-    from data.database import Flag, get_session, init_db
+    from data.database import Flag, StockScreen, TickerUniverse, get_session, init_db
     from data.db_reader import get_price_bars
 
 
@@ -321,6 +321,136 @@ def sync_flags_from_screen(screener_df, min_score_long: int = 70, min_score_shor
         summary["new"] += 1
 
     return summary
+
+
+def save_screen_snapshot(screener_df) -> int:
+    """Replace the stock_screen table with the LATEST full screen (every scored name).
+
+    The flags table only holds the high-conviction subset; this stores the whole
+    scoreable universe so the Stocks page can show every stock and merely *filter*
+    to the flagged ones. One row per ticker — we wipe and rewrite each run so the
+    snapshot is always "as of now", never stale duplicates. Returns rows written.
+    """
+    if screener_df is None or screener_df.empty:
+        return 0  # never blank out the snapshot on an empty/failed screen
+
+    init_db()
+    today = date.today()
+    session = get_session()
+    try:
+        session.query(StockScreen).delete()  # full replace — one snapshot, not history
+        rows = 0
+        for _, row in screener_df.iterrows():
+            sd = row.to_dict()
+            ticker = str(sd.get("ticker")).strip().upper()
+            if not ticker:
+                continue
+            session.add(
+                StockScreen(
+                    ticker=ticker,
+                    screened_date=today,
+                    score=int(_na_to_none(sd.get("total_score")) or 0),
+                    confidence_label=_na_to_none(sd.get("confidence_label")),
+                    direction=_na_to_none(sd.get("direction")),
+                    stage=_stage_str(sd),
+                    rs_label=_na_to_none(sd.get("rs_label")),
+                    sector_etf=_na_to_none(sd.get("sector_etf")),
+                    sector_rotation_label=_na_to_none(sd.get("sector_rotation_label")),
+                    engines_firing=_na_to_none(sd.get("engines_firing")),
+                )
+            )
+            rows += 1
+        session.commit()
+        return rows
+    finally:
+        session.close()
+
+
+def get_stocks_overview() -> list:
+    """Every S&P 500 stock as a display row — the Stocks page's data source.
+
+    Merges three things per ticker:
+      • ticker_universe → company name + GICS sector (so all ~500 names show, even
+        ones with no screen data yet),
+      • stock_screen     → the latest confluence read (score, stage, RS, rotation),
+      • the Active flags  → for flagged names, the stored flag drives every field
+        (and adds the setup levels + date span) so a flagged row looks EXACTLY like
+        it did on the old Flagged-Stocks page.
+
+    Returns plain dicts (the API just serializes them), sorted flagged-first then by
+    score. `is_flagged` lets the frontend default-filter to the flagged subset.
+    """
+    init_db()
+    session = get_session()
+    try:
+        universe = session.query(TickerUniverse).filter(TickerUniverse.active.is_(True)).all()
+        meta = {u.ticker: u for u in universe}
+        screen = {s.ticker: s for s in session.query(StockScreen).all()}
+    finally:
+        session.close()
+
+    # Best Active flag per ticker (highest score wins if both directions flagged).
+    flags_by_ticker = {}
+    for f in get_active_flags():
+        cur = flags_by_ticker.get(f.ticker)
+        if cur is None or (f.score or 0) > (cur.score or 0):
+            flags_by_ticker[f.ticker] = f
+
+    # Build the row set over the union of universe + any flagged ticker (a flag on a
+    # name that has since left the index still deserves to show).
+    tickers = set(meta) | set(flags_by_ticker)
+    rows = []
+    for ticker in tickers:
+        u = meta.get(ticker)
+        s = screen.get(ticker)
+        f = flags_by_ticker.get(ticker)
+
+        row = {
+            "ticker": ticker,
+            "company_name": u.company_name if u else None,
+            "sector": u.sector if u else None,
+            "score": s.score if s else None,
+            "confidence_label": s.confidence_label if s else None,
+            "direction": s.direction if s else None,
+            "stage": s.stage if s else None,
+            "rs_label": s.rs_label if s else None,
+            "sector_etf": (s.sector_etf if s else None) or (u.sector_etf if u else None),
+            "sector_rotation_label": s.sector_rotation_label if s else None,
+            "screened_date": s.screened_date if s else None,
+            # Setup levels only exist for flagged names (filled below).
+            "entry_price": None, "target_price": None, "suggested_stop": None,
+            "rr_ratio": None, "earnings_flag": None, "days_to_earnings": None,
+            "flagged_date": None, "stage_start_date": None, "last_seen_date": None,
+            "status": None, "is_flagged": False,
+        }
+
+        if f is not None:
+            # A flagged row is driven by the stored flag (matches the old page exactly).
+            row.update(
+                is_flagged=True,
+                score=f.score,
+                confidence_label=f.confidence_label,
+                direction=f.direction,
+                stage=f.stage,
+                rs_label=f.rs_label,
+                sector_etf=f.sector_etf or row["sector_etf"],
+                sector_rotation_label=f.sector_rotation_label,
+                entry_price=f.entry_price,
+                target_price=f.target_price,
+                suggested_stop=f.suggested_stop,
+                rr_ratio=f.rr_ratio,
+                earnings_flag=f.earnings_flag,
+                days_to_earnings=f.days_to_earnings,
+                flagged_date=f.flagged_date,
+                stage_start_date=f.stage_start_date,
+                last_seen_date=f.last_seen_date,
+                status=f.status,
+            )
+        rows.append(row)
+
+    # Flagged first, then by score (None scores sort last within each group).
+    rows.sort(key=lambda r: (not r["is_flagged"], -(r["score"] if r["score"] is not None else -1)))
+    return rows
 
 
 def update_flag_status(ticker, status, reason, flagged_date=None):

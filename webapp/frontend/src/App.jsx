@@ -1,7 +1,7 @@
 // src/App.jsx
 // ===========
 // App shell + client-side routing (React Router). Four routes:
-//   /        → Flagged Stocks (FlagsPage)
+//   /        → Stocks         (StocksPage — every S&P 500 name, flag is a filter)
 //   /news    → News Feed       (NewsPage)
 //   /grader  → Stock Grader    (GraderPage)
 //   /sectors → Sector Rankings (SectorPage)
@@ -11,13 +11,13 @@
 import { useState } from "react";
 import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
 
-import FlagsPage from "./pages/FlagsPage";
+import StocksPage from "./pages/StocksPage";
 import NewsPage from "./pages/NewsPage";
 import GraderPage from "./pages/GraderPage";
 import SectorPage from "./pages/SectorPage";
 
 const NAV = [
-  { to: "/", label: "Flagged Stocks" },
+  { to: "/", label: "Stocks" },
   { to: "/news", label: "News Feed" },
   { to: "/grader", label: "Stock Grader" },
   { to: "/sectors", label: "Sectors" },
@@ -107,10 +107,10 @@ export default function App() {
               element={
                 <>
                   <PageHeading
-                    title="Flagged Stocks"
-                    subtitle="Active setup flags identified by the confluence screener."
+                    title="Stocks"
+                    subtitle="Every S&P 500 stock from the confluence screen — defaulted to the flagged setups."
                   />
-                  <FlagsPage />
+                  <StocksPage />
                 </>
               }
             />

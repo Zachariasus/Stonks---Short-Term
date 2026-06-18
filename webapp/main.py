@@ -43,7 +43,7 @@ from grader.ai_grader import grade_stock  # noqa: E402
 from grader.position_sizer import calculate_full_risk_profile  # noqa: E402
 from news.relevance_scorer import get_relevant_news, search_news  # noqa: E402
 from news.source_bias import lookup as bias_lookup  # noqa: E402
-from screener.flag_generator import get_active_flags  # noqa: E402
+from screener.flag_generator import get_active_flags, get_stocks_overview  # noqa: E402
 
 API_VERSION = "0.1.0"
 
@@ -113,6 +113,36 @@ class FlagResponse(BaseModel):
     earnings_flag: Optional[str] = None
     days_to_earnings: Optional[int] = None
     status: Optional[str] = None
+
+
+class StockRowResponse(BaseModel):
+    """One S&P 500 stock as shown on the Stocks page. A superset of FlagResponse:
+    every universe ticker appears; `is_flagged` marks the ones that cleared the
+    flag threshold (those carry the setup levels + date span, like the old page)."""
+
+    ticker: str
+    company_name: Optional[str] = None
+    sector: Optional[str] = None
+    is_flagged: bool = False
+    score: Optional[int] = None
+    confidence_label: Optional[str] = None
+    direction: Optional[str] = None
+    stage: Optional[str] = None
+    rs_label: Optional[str] = None
+    sector_etf: Optional[str] = None
+    sector_rotation_label: Optional[str] = None
+    # Setup levels + span — populated only for flagged rows.
+    entry_price: Optional[float] = None
+    target_price: Optional[float] = None
+    suggested_stop: Optional[float] = None
+    rr_ratio: Optional[float] = None
+    earnings_flag: Optional[str] = None
+    days_to_earnings: Optional[int] = None
+    flagged_date: Optional[date] = None
+    stage_start_date: Optional[date] = None
+    last_seen_date: Optional[date] = None
+    status: Optional[str] = None
+    screened_date: Optional[date] = None
 
 
 class NewsArticleResponse(BaseModel):
@@ -214,6 +244,20 @@ def get_flag(ticker: str):
     # Most recent by flagged_date.
     latest = max(matches, key=lambda f: f.flagged_date)
     return FlagResponse.model_validate(latest)
+
+
+@app.get("/stocks", response_model=List[StockRowResponse])
+def list_stocks(flagged_only: bool = False):
+    """Every S&P 500 stock with its latest screen read; flagged names enriched.
+
+    The Stocks page fetches the full set once and filters client-side (defaulting
+    to the flagged subset), so the default call returns everything. flagged_only=
+    true is a convenience for callers that just want the flagged rows.
+    """
+    rows = get_stocks_overview()
+    if flagged_only:
+        rows = [r for r in rows if r["is_flagged"]]
+    return [StockRowResponse.model_validate(r) for r in rows]
 
 
 def _enrich_news(article: dict) -> dict:

@@ -188,13 +188,18 @@ def refresh_all_data() -> dict:
     # screening error can never break the data refresh.
     screen_summary = None
     try:
-        from screener.flag_generator import sync_flags_from_screen
+        from screener.flag_generator import save_screen_snapshot, sync_flags_from_screen
         from screener.screener import run_screener
 
         print()  # spacer
         screen_df = run_screener()  # scores the full scoreable universe
+        snapshot_rows = save_screen_snapshot(screen_df)  # full universe → Stocks page
         sync = sync_flags_from_screen(screen_df)  # extend / reset / close / create
-        screen_summary = {"scored": 0 if screen_df is None else len(screen_df), **sync}
+        screen_summary = {
+            "scored": 0 if screen_df is None else len(screen_df),
+            "snapshot_rows": snapshot_rows,
+            **sync,
+        }
         print(
             f"  Stocks scored                : {screen_summary['scored']}\n"
             f"  New flags                    : {sync['new']}\n"
