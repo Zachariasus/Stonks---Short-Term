@@ -21,7 +21,12 @@ import pandas as pd
 # inserts the project root so the file runs standalone too.
 try:
     from analysis.earnings_calendar import get_days_to_earnings, get_earnings_flag
-    from analysis.price_target import calculate_price_target, calculate_reward_risk
+    from analysis.price_target import (
+        calculate_price_target,
+        calculate_reward_risk,
+        calculate_short_reward_risk,
+        calculate_short_target,
+    )
     from analysis.stage_classifier import STAGE_LABELS
     from data.database import Flag, StockScreen, TickerUniverse, get_session, init_db
     from data.db_reader import get_price_bars
@@ -31,10 +36,20 @@ except ImportError:  # pragma: no cover
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from analysis.earnings_calendar import get_days_to_earnings, get_earnings_flag
-    from analysis.price_target import calculate_price_target, calculate_reward_risk
+    from analysis.price_target import (
+        calculate_price_target,
+        calculate_reward_risk,
+        calculate_short_reward_risk,
+        calculate_short_target,
+    )
     from analysis.stage_classifier import STAGE_LABELS
     from data.database import Flag, StockScreen, TickerUniverse, get_session, init_db
     from data.db_reader import get_price_bars
+
+# Shorts demand more confirmation than longs (the SHORT playbook's core rule), so
+# they flag at a higher score than longs — and higher still when the broad market
+# is a strong bull (Risk-On), where shorting single names is fighting the tide.
+SHORT_BULL_BAR = 80
 
 
 def _na_to_none(value):
@@ -96,12 +111,23 @@ def _setup_fields(ticker, direction="Long") -> dict:
         return {"entry_price": None, "suggested_stop": None, "target_price": None, "rr_ratio": None}
 
     if direction == "Short":
-        # Short stop sits ABOVE entry; no short-side target model yet → null.
+        # Short stop sits ABOVE entry; target is a downside (prior-support /
+        # measured-move) objective, with reward:risk measured against that stop.
+        short_stop = round(entry * 1.08, 2)
+        target = None
+        rr = None
+        rr_data = calculate_short_reward_risk(ticker, short_stop)
+        if rr_data is not None:
+            target = rr_data.get("target_price")
+            rr = rr_data.get("rr_ratio")
+        else:  # stop/target geometry invalid → still surface a target if we have one
+            st = calculate_short_target(ticker)
+            target = st.get("target_price") if st else None
         return {
             "entry_price": entry,
-            "suggested_stop": round(entry * 1.08, 2),
-            "target_price": None,
-            "rr_ratio": None,
+            "suggested_stop": short_stop,
+            "target_price": target,
+            "rr_ratio": rr,
         }
 
     # Long: stop below entry, valuation target + reward:risk.
@@ -209,7 +235,7 @@ def generate_flag(score_dict, target_price=None):
         session.close()
 
 
-def flag_screener_results(screener_df, min_score_long: int = 70, min_score_short: int = 70) -> dict:
+def flag_screener_results(screener_df, min_score_long: int = 70, min_score_short: int = 75) -> dict:
     """Flag every qualifying row of a screener DataFrame.
 
     Long rows need score ≥ min_score_long; Short rows need score ≥ min_score_short.
@@ -247,7 +273,7 @@ def flag_screener_results(screener_df, min_score_long: int = 70, min_score_short
     return summary
 
 
-def sync_flags_from_screen(screener_df, min_score_long: int = 70, min_score_short: int = 70) -> dict:
+def sync_flags_from_screen(screener_df, min_score_long: int = 70, min_score_short: int = 75) -> dict:
     """Reconcile the Active flag watchlist against today's screen (the daily flow).
 
     This replaces the old "one new flag row per ticker per day" behaviour with a
@@ -280,9 +306,16 @@ def sync_flags_from_screen(screener_df, min_score_long: int = 70, min_score_shor
         screened_tickers.add(ticker)
         direction = sd.get("direction")
         score = _na_to_none(sd.get("total_score")) or 0
-        if (direction == "Long" and score >= min_score_long) or (
-            direction == "Short" and score >= min_score_short
-        ):
+        if direction == "Long":
+            qualifies = score >= min_score_long
+        elif direction == "Short":
+            # Shorts need a higher bar — higher still in a strong-bull (Risk-On)
+            # tape, where shorting single names fights the market's drift.
+            bar = SHORT_BULL_BAR if sd.get("market_regime") == "Risk-On" else min_score_short
+            qualifies = score >= bar
+        else:
+            qualifies = False
+        if qualifies:
             qualifying[(ticker, direction)] = sd
 
     session = get_session()

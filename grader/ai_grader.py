@@ -230,6 +230,7 @@ def grade_stock(ticker: str) -> dict:
         "confluence_score": s6.get("total_score"),
         "confidence_label": s6.get("confidence_label"),
         "direction": s6.get("direction"),
+        "market_regime": s6.get("market_regime"),
         # Per-engine point breakdown (powers the Grader UI's E1–E4 bars).
         "engine_1_pts": s6.get("engine_1_pts"),
         "engine_2_pts": s6.get("engine_2_pts"),

@@ -27,7 +27,13 @@ try:
     from analysis.estimate_revisions import analyze_revision_trend
     from analysis.macro_cycle import classify_cycle_phase, get_macro_snapshot
     from analysis.margin_trends import analyze_margin_trend
-    from analysis.price_target import calculate_price_target, calculate_reward_risk
+    from analysis.market_regime import get_market_regime
+    from analysis.price_target import (
+        calculate_price_target,
+        calculate_reward_risk,
+        calculate_short_reward_risk,
+        calculate_short_target,
+    )
     from analysis.relative_strength import get_rs_profile, get_rs_rating
     from analysis.sector_ranker import rank_sectors
     from analysis.stage_classifier import classify_stage
@@ -44,7 +50,13 @@ except ImportError:  # pragma: no cover
     from analysis.estimate_revisions import analyze_revision_trend
     from analysis.macro_cycle import classify_cycle_phase, get_macro_snapshot
     from analysis.margin_trends import analyze_margin_trend
-    from analysis.price_target import calculate_price_target, calculate_reward_risk
+    from analysis.market_regime import get_market_regime
+    from analysis.price_target import (
+        calculate_price_target,
+        calculate_reward_risk,
+        calculate_short_reward_risk,
+        calculate_short_target,
+    )
     from analysis.relative_strength import get_rs_profile, get_rs_rating
     from analysis.sector_ranker import rank_sectors
     from analysis.stage_classifier import classify_stage
@@ -142,9 +154,12 @@ def score_stock(ticker: str, market_context=None) -> dict:
     if market_context is not None:
         sector_rankings = market_context.get("sector_rankings") or rank_sectors()
         cycle_dict = market_context.get("cycle_summary") or _get_macro_phase()
+        regime = market_context.get("regime") or get_market_regime()
     else:
         sector_rankings = rank_sectors()      # cached internally
         cycle_dict = _get_macro_phase()        # cached, non-printing
+        regime = get_market_regime()           # cached, DB-only (SPY 200-day)
+    regime_label = regime.get("regime", "Unknown")
 
     # ====================================================================
     # GATHER SIGNALS — each engine guarded; safe neutral defaults on failure.
@@ -238,16 +253,9 @@ def score_stock(ticker: str, market_context=None) -> dict:
     except Exception:  # noqa: BLE001
         pass
 
+    # R:R is direction-specific (different target + stop side), so it's computed
+    # inside each branch below rather than here.
     rr_ratio = None
-    try:
-        pt = calculate_price_target(ticker)
-        if pt:
-            placeholder_stop = round(pt["current_close"] * 0.92, 2)  # −8% rough stop
-            rr = calculate_reward_risk(ticker, placeholder_stop)
-            if rr:
-                rr_ratio = rr["rr_ratio"]
-    except Exception:  # noqa: BLE001
-        pass
 
     # ====================================================================
     # DIRECTION: Stage 4 + weak RS → evaluate as a SHORT candidate instead.
@@ -296,6 +304,15 @@ def score_stock(ticker: str, market_context=None) -> dict:
             "Partial — compressed on one dimension": 6,
             "Limited — already extended": 2, "Unknown": 5,
         }.get(valuation_room, 5)
+        # Long R:R against a placeholder −8% stop (the grader uses the real ATR stop).
+        try:
+            pt = calculate_price_target(ticker)
+            if pt:
+                rr = calculate_reward_risk(ticker, round(pt["current_close"] * 0.92, 2))
+                if rr:
+                    rr_ratio = rr["rr_ratio"]
+        except Exception:  # noqa: BLE001
+            pass
         s_rr = _rr_points(rr_ratio)
         e4 = s_room + s_rr
         d4 = (
@@ -332,10 +349,14 @@ def score_stock(ticker: str, market_context=None) -> dict:
             f"Margin {margin_signal} (+{s_marg}) | {beat_pattern} (+{s_beat})"
         )
 
+        # Top-down for a SHORT: a lagging sector + a RISK-OFF tape. The SHORT
+        # playbook's rule #1 is the market-trend filter (shorts need the tide), so
+        # the macro slot here is driven by the SPY-200-day regime — not the
+        # FRED cycle phase (which is often dark without a key).
         s_rot = {"Lagging": 15, "Neutral": 8, "Leading": 0}.get(sector_rotation_label, 0)
-        s_macro = {"Not favored": 10, "Unknown": 5, "Favored": 2}.get(macro_fit, 5)
+        s_macro = {"Risk-Off": 10, "Neutral": 5, "Risk-On": 0}.get(regime_label, 5)
         e3 = s_rot + s_macro
-        d3 = f"{sector_rotation_label} sector (+{s_rot}) | Macro {macro_fit} (+{s_macro})"
+        d3 = f"{sector_rotation_label} sector (+{s_rot}) | {regime_label} market (+{s_macro})"
 
         # For shorts, an ALREADY-EXTENDED multiple is the bearish-favorable case.
         s_room = {
@@ -344,11 +365,28 @@ def score_stock(ticker: str, market_context=None) -> dict:
             "Unknown": 5,
             "Yes — compressed vs history and peers": 2,
         }.get(valuation_room, 5)
-        s_rr = 0  # short R:R uses an inverted stop — placeholder 0 for v1
+        # Real short R:R now: a downside (prior-support / measured-move) target vs a
+        # placeholder +8% stop ABOVE entry (the grader uses the real ATR stop).
+        try:
+            pt_s = calculate_short_target(ticker)
+            if pt_s:
+                rr_s = calculate_short_reward_risk(ticker, round(pt_s["current_close"] * 1.08, 2))
+                if rr_s:
+                    rr_ratio = rr_s["rr_ratio"]
+        except Exception:  # noqa: BLE001
+            pass
+        s_rr = _rr_points(rr_ratio)
         e4 = s_room + s_rr
-        d4 = f"Room: {valuation_room} (+{s_room}) | R:R short [v1 placeholder] (+{s_rr})"
+        d4 = (
+            f"Room: {valuation_room} (+{s_room}) | "
+            f"R:R {_rr_label(rr_ratio)} (+{s_rr}) [placeholder stop]"
+        )
         entry_triggered = short_entry
-        note = "Potential SHORT candidate (Stage 4 + weak RS) — simplified short rubric"
+        note = (
+            "Potential SHORT candidate (Stage 4 + weak RS). "
+            f"Market regime: {regime_label}"
+            + (" — shorting is an uphill fight in a strong bull tape." if regime_label == "Risk-On" else "")
+        )
 
     total = e1 + e2 + e3 + e4
 
@@ -375,7 +413,7 @@ def score_stock(ticker: str, market_context=None) -> dict:
         "revision_direction": revision_direction, "margin_direction": margin_signal,
         "beat_pattern": beat_pattern,
         "sector_rotation_label": sector_rotation_label, "sector_etf": sector_etf,
-        "macro_fit": macro_fit,
+        "macro_fit": macro_fit, "market_regime": regime_label,
         "valuation_room": valuation_room, "rr_ratio": rr_ratio,
         "engines_firing": engines_firing, "confidence_label": confidence,
         "engine_1_detail": d1, "engine_2_detail": d2,

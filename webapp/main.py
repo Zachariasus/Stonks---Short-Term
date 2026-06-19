@@ -180,6 +180,7 @@ class GradeResponse(BaseModel):
     confluence_score: Optional[int] = None
     confidence_label: Optional[str] = None
     direction: Optional[str] = None
+    market_regime: Optional[str] = None  # SPY-200-day regime: Risk-On / Neutral / Risk-Off
     # Per-engine breakdown (maxes are fixed by the scorer: 35/25/25/15).
     engine_1_pts: Optional[int] = None
     engine_2_pts: Optional[int] = None
@@ -361,8 +362,11 @@ def grade(req: GradeRequest):
 
     try:
         grade_result = grade_stock(ticker)
+        # Size in the direction the confluence engine chose: a Stage-4 short
+        # candidate gets a stop ABOVE entry, a downside target, and smaller size.
+        direction = grade_result.get("direction") or "Long"
         risk = calculate_full_risk_profile(
-            ticker, account_size=req.account_size, risk_pct=req.risk_pct
+            ticker, account_size=req.account_size, risk_pct=req.risk_pct, direction=direction
         ) or {}
         earnings = get_earnings_summary(ticker)
     except HTTPException:
@@ -381,6 +385,7 @@ def grade(req: GradeRequest):
         confluence_score=grade_result.get("confluence_score"),
         confidence_label=grade_result.get("confidence_label"),
         direction=grade_result.get("direction"),
+        market_regime=grade_result.get("market_regime"),
         engine_1_pts=grade_result.get("engine_1_pts"),
         engine_2_pts=grade_result.get("engine_2_pts"),
         engine_3_pts=grade_result.get("engine_3_pts"),

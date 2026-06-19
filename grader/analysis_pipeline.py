@@ -272,6 +272,8 @@ def run_full_analysis(ticker: str) -> dict:
         "engine_3_pts": score.get("engine_3_pts"),
         "engine_4_pts": score.get("engine_4_pts"),
         "engines_firing": score.get("engines_firing"),
+        "market_regime": score.get("market_regime"),
+        "note": score.get("note"),
     }
 
     return {
@@ -460,6 +462,12 @@ def format_analysis_report(packet: dict) -> str:
         f"E1: {s6.get('engine_1_pts')}/35  E2: {s6.get('engine_2_pts')}/25  "
         f"E3: {s6.get('engine_3_pts')}/25  E4: {s6.get('engine_4_pts')}/15"
     )
+    # Market-trend regime — the broad-market filter both playbooks lean on; it is
+    # the gating consideration for SHORT setups especially (shorts need the tide).
+    if s6.get("market_regime"):
+        lines.append(f"Market regime: {s6.get('market_regime')}")
+    if s6.get("note"):
+        lines.append(f"Note: {s6.get('note')}")
     lines.append(bar)
 
     report = "\n".join(lines)

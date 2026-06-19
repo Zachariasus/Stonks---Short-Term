@@ -24,7 +24,12 @@ DIVISION SAFETY
 # inserts the project root so the file runs standalone too.
 try:
     from analysis.moving_averages import calculate_atr
-    from analysis.price_target import calculate_price_target, calculate_reward_risk
+    from analysis.price_target import (
+        calculate_price_target,
+        calculate_reward_risk,
+        calculate_short_reward_risk,
+        calculate_short_target,
+    )
     from data.db_reader import get_price_bars
 except ImportError:  # pragma: no cover
     import sys
@@ -32,8 +37,18 @@ except ImportError:  # pragma: no cover
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from analysis.moving_averages import calculate_atr
-    from analysis.price_target import calculate_price_target, calculate_reward_risk
+    from analysis.price_target import (
+        calculate_price_target,
+        calculate_reward_risk,
+        calculate_short_reward_risk,
+        calculate_short_target,
+    )
     from data.db_reader import get_price_bars
+
+# The SHORT playbook insists shorts be sized SMALLER than comparable longs — the
+# loss is unbounded, the carry compounds, and gaps cut against you. So a short's
+# dollar-risk budget is scaled down by this factor (a 1% short risks ~0.67%).
+SHORT_SIZE_FACTOR = 0.67
 
 
 def derive_atr_stop(ticker, entry_price, atr_multiple=2.5, direction="Long"):
@@ -70,7 +85,7 @@ def derive_atr_stop(ticker, entry_price, atr_multiple=2.5, direction="Long"):
 
 
 def calculate_position_size(entry_price, stop_price, account_size,
-                            risk_pct=0.01, direction="Long"):
+                            risk_pct=0.01, direction="Long", size_factor=1.0):
     """Size the position so a stop-out loses exactly `risk_pct` of the account.
 
     This is the heart of risk-based sizing. You decide up front how many dollars
@@ -79,10 +94,13 @@ def calculate_position_size(entry_price, stop_price, account_size,
     per-share loss gives the share count — so every trade risks the same dollars
     regardless of price or volatility.
 
+    `size_factor` scales the dollar-risk budget down (e.g. 0.67 for a short, which
+    is deliberately sized smaller than a comparable long). 1.0 = no adjustment.
+
     Returns the full sizing dict, or None (with a warning) if the risk-per-share
     is zero or negative (which would mean the stop is at/through the entry).
     """
-    dollar_risk_budget = account_size * risk_pct
+    dollar_risk_budget = account_size * risk_pct * size_factor
 
     # Loss per share if stopped out. abs() so the same formula works for longs
     # (stop below) and shorts (stop above).
@@ -151,26 +169,34 @@ def calculate_full_risk_profile(ticker, account_size, risk_pct=0.01,
     stop_price = atr_stop["stop_price"]
     atr = atr_stop["atr"]
 
+    is_short = direction == "Short"
+    # Shorts are sized smaller (unbounded loss / carry / gap risk).
+    size_factor = SHORT_SIZE_FACTOR if is_short else 1.0
+
     # --- Position size ---
     sizing = calculate_position_size(entry_price, stop_price, account_size,
-                                     risk_pct, direction)
+                                     risk_pct, direction, size_factor=size_factor)
     if sizing is None:
         return None
 
-    # --- Target: supplied, else from the valuation engine ---
+    # --- Target: supplied, else direction-aware from the engines ---
+    #   Long  → upside re-rating target (multiple × forward EPS).
+    #   Short → downside prior-support / measured-move target.
     if target_price is None:
-        target = calculate_price_target(ticker)
+        target = calculate_short_target(ticker) if is_short else calculate_price_target(ticker)
         target_price = target["target_price"] if target else None
 
-    # --- Reward:risk (price_target.calculate_reward_risk anchors to the latest
-    # close as the entry and is written for the long side). For the default
-    # entry=None case, entry == latest close so it lines up; it returns None for
-    # a stop on the wrong side of price, which we surface as n/a. ---
-    rr = calculate_reward_risk(ticker, stop_price)
+    # --- Reward:risk — direction-aware. Long: target above, stop below. Short:
+    # target below, stop above. Each returns None for a stop on the wrong side
+    # of price, which we surface as n/a. ---
+    rr = (
+        calculate_short_reward_risk(ticker, stop_price)
+        if is_short else calculate_reward_risk(ticker, stop_price)
+    )
 
-    # ATR stop distance as a percent of entry (positive = the ATR gap). Guarded.
+    # ATR stop distance as a percent of entry (magnitude of the gap). Guarded.
     if entry_price:
-        atr_stop_distance_pct = round((entry_price - stop_price) / entry_price * 100, 2)
+        atr_stop_distance_pct = round(abs(entry_price - stop_price) / entry_price * 100, 2)
     else:
         atr_stop_distance_pct = None
 
@@ -189,6 +215,7 @@ def calculate_full_risk_profile(ticker, account_size, risk_pct=0.01,
         "dollar_risk_budget": sizing["dollar_risk_budget"],
         "risk_per_share": sizing["risk_per_share"],
         "risk_pct": risk_pct,
+        "size_factor": size_factor,   # <1.0 for shorts (sized smaller)
         "account_size": account_size,
         "rr_ratio": rr["rr_ratio"] if rr else None,
         "rr_label": rr["rr_label"] if rr else None,
@@ -230,18 +257,29 @@ def print_risk_card(risk_dict) -> dict:
         f"{side}, {stop_move_pct:+.1f}%)"
     )
 
-    # Target — flag clearly if it's below the entry (negative upside).
+    # Target — direction-aware. For a LONG, a target below entry is bad (negative
+    # upside). For a SHORT it's the whole point (the downside objective); the bad
+    # case there is a target ABOVE entry (no room to fall).
     if target is None:
-        print("Target:  n/a   (no valuation target available)")
+        print("Target:  n/a   (no target available)")
     else:
         target_move_pct = ((target - entry) / entry * 100) if entry else 0.0
-        if target < entry:
-            print(
-                f"Target:  ${target:,.2f}   ← note: below entry = negative upside "
-                f"({target_move_pct:+.1f}%) flagged"
-            )
+        if direction == "Short":
+            if target < entry:
+                print(f"Target:  ${target:,.2f}   ({target_move_pct:+.1f}% downside objective)")
+            else:
+                print(
+                    f"Target:  ${target:,.2f}   ← note: above entry = no downside "
+                    f"({target_move_pct:+.1f}%) flagged"
+                )
         else:
-            print(f"Target:  ${target:,.2f}   (+{target_move_pct:.1f}% upside)")
+            if target < entry:
+                print(
+                    f"Target:  ${target:,.2f}   ← note: below entry = negative upside "
+                    f"({target_move_pct:+.1f}%) flagged"
+                )
+            else:
+                print(f"Target:  ${target:,.2f}   (+{target_move_pct:.1f}% upside)")
 
     # Sizing
     print()
@@ -261,9 +299,23 @@ def print_risk_card(risk_dict) -> dict:
     else:
         print(f"R:R:   {g['rr_ratio']:.1f}x  ({g['rr_label']})")
 
-    # --- Warning block: negative upside, poor R:R, or oversized position ---
+    # Short size note — make the deliberate smaller sizing visible.
+    if g.get("size_factor", 1.0) < 1.0:
+        print(
+            f"\n(Short sized at {g['size_factor']:.2f}× a comparable long's risk — "
+            "unbounded loss / carry / gap asymmetry.)"
+        )
+
+    # --- Warning block: bad target, poor R:R, or oversized position ---
     warnings = []
-    if target is not None and target < entry:
+    if direction == "Short":
+        if target is not None and target > entry:
+            warnings.append(
+                "Target is above entry — this short has no downside room. The setup\n"
+                "    is not offering a measured move down; wait for a breakdown or a\n"
+                "    failed rally with a real objective before shorting."
+            )
+    elif target is not None and target < entry:
         warnings.append(
             "Target is below entry — this setup has negative upside. The valuation\n"
             "    engine is flagging downside risk despite the trend. Consider waiting\n"

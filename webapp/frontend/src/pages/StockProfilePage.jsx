@@ -220,7 +220,28 @@ function GradeSection({ grade, loading, error }) {
         <div className={`text-6xl font-bold leading-none ${gradeColor(grade.grade)}`}>
           {grade.grade || "?"}
         </div>
-        <div className="text-slate-300">{grade.one_line_verdict || "—"}</div>
+        <div>
+          <div className="text-slate-300">{grade.one_line_verdict || "—"}</div>
+          {grade.market_regime && (
+            <div className="mt-1 text-xs text-slate-400">
+              Market regime:{" "}
+              <span
+                className={
+                  grade.market_regime === "Risk-On"
+                    ? "text-green-400"
+                    : grade.market_regime === "Risk-Off"
+                    ? "text-red-400"
+                    : "text-yellow-400"
+                }
+              >
+                {grade.market_regime}
+              </span>
+              {grade.direction === "Short" && grade.market_regime === "Risk-On" && (
+                <span className="text-slate-500"> — shorting is an uphill fight in a strong bull</span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Bull / bear (only meaningful with a live AI grade) */}

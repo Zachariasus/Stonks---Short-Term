@@ -20,6 +20,7 @@ import pandas as pd
 # Imports. PYTHONPATH=<project root> makes the first block work; the fallback
 # inserts the project root so the file runs standalone too.
 try:
+    from analysis.moving_averages import calculate_atr
     from analysis.valuation import assess_valuation_room, get_valuation_snapshot
     from data.db_reader import get_latest_fundamentals, get_price_bars
 except ImportError:  # pragma: no cover
@@ -27,6 +28,7 @@ except ImportError:  # pragma: no cover
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from analysis.moving_averages import calculate_atr
     from analysis.valuation import assess_valuation_room, get_valuation_snapshot
     from data.db_reader import get_latest_fundamentals, get_price_bars
 
@@ -159,6 +161,115 @@ def calculate_reward_risk(ticker: str, stop_price: float):
         print(
             f"⚠️  calculate_reward_risk: stop ${stop_price:.2f} is not below the "
             f"current price ${current_close:.2f} — invalid risk."
+        )
+        return None
+
+    rr_ratio = round(reward / risk, 2)
+    if rr_ratio >= 3.0:
+        rr_label = "Excellent"
+    elif rr_ratio >= 2.0:
+        rr_label = "Good"
+    elif rr_ratio >= 1.5:
+        rr_label = "Marginal"
+    else:
+        rr_label = "Poor"
+
+    return {
+        "rr_ratio": rr_ratio,
+        "rr_label": rr_label,
+        "reward_dollars": round(reward, 2),
+        "risk_dollars": round(risk, 2),
+        "target_price": target_price,
+        "stop_price": stop_price,
+        "current_close": current_close,
+    }
+
+
+# ---------------------------------------------------------------------------
+# SHORT side — the mirror of the long target/R:R.
+#
+# The long target is a fundamental anchor (target multiple × forward EPS — where
+# the multiple can RE-RATE UP). The SHORT playbook is explicit: do not short on
+# valuation alone, and cover into a "measured-move or prior-support target." So
+# the short target is TECHNICAL: the prior support a decline tends to reach,
+# with a measured-move fallback for names already pinned at their lows.
+# ---------------------------------------------------------------------------
+SHORT_TARGET_LOOKBACK = 252   # ~52 weeks of trading days for the prior-support low
+MEASURED_MOVE_ATR = 3.0       # fallback leg = 3× daily ATR when already near lows
+
+
+def calculate_short_target(ticker: str):
+    """Downside objective for a short: prior support, else a measured move.
+
+    target = lowest LOW over ~52 weeks (the prior support a Stage 4 decline
+    revisits) when that sits a useful distance below price; otherwise — the name
+    is already at/near its lows — a measured-move leg of 3× ATR below price.
+
+    Returns {current_close, target_price, downside_pct (negative), rationale,
+    time_horizon}, or None on missing data. Mirrors calculate_price_target's shape
+    on the short side.
+    """
+    ticker = ticker.strip().upper()
+
+    bars = get_price_bars(ticker, days=SHORT_TARGET_LOOKBACK + 30)
+    if bars is None or bars.empty:
+        print(f"⚠️  calculate_short_target: no price data for '{ticker}'.")
+        return None
+
+    bars = bars.sort_values("Date").reset_index(drop=True)
+    current_close = round(float(bars["Close"].iloc[-1]), 2)
+    if current_close <= 0:
+        return None
+
+    # Prior support = lowest low over the lookback, EXCLUDING the last 5 sessions
+    # (so a fresh breakdown low doesn't define its own target).
+    window = bars.iloc[-SHORT_TARGET_LOOKBACK:] if len(bars) >= SHORT_TARGET_LOOKBACK else bars
+    lows = window["Low"].iloc[:-5]
+    support = round(float(lows.min()), 2) if len(lows) else None
+
+    # Use prior support only if it offers a meaningful (>3%) move down; otherwise
+    # the stock is already pinned at its lows → project a measured move instead.
+    if support is not None and support < current_close * 0.97:
+        target_price = support
+        rationale = "Prior support (~52-week low)"
+    else:
+        atr, _weekly = calculate_atr(ticker)
+        leg = (MEASURED_MOVE_ATR * atr) if atr else current_close * 0.12
+        target_price = round(max(current_close - leg, 0.01), 2)
+        rationale = "Measured move (already near prior lows)"
+
+    downside_pct = round((target_price - current_close) / current_close * 100, 2)
+    return {
+        "ticker": ticker,
+        "current_close": current_close,
+        "target_price": target_price,
+        "downside_pct": downside_pct,   # negative = how far below price the target sits
+        "rationale": rationale,
+        "time_horizon": "4–6 months",
+    }
+
+
+def calculate_short_reward_risk(ticker: str, stop_price: float):
+    """Reward:risk for a SHORT — the inverse of the long version.
+
+    reward = current − target (target sits BELOW price) ; risk = stop − current
+    (stop sits ABOVE price). Guarded: a stop at or below the current price gives
+    risk ≤ 0 (an invalid short) → None.
+    """
+    target = calculate_short_target(ticker)
+    if target is None:
+        return None
+
+    target_price = target["target_price"]
+    current_close = target["current_close"]
+
+    reward = current_close - target_price   # downside captured
+    risk = stop_price - current_close        # loss if the stop (above) is hit
+
+    if risk <= 0:
+        print(
+            f"⚠️  calculate_short_reward_risk: stop ${stop_price:.2f} is not above the "
+            f"current price ${current_close:.2f} — invalid risk for a short."
         )
         return None
 

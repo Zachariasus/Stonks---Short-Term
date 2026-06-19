@@ -27,6 +27,7 @@ from sqlalchemy import func
 try:
     from analysis.confluence_scorer import score_stock
     from analysis.macro_cycle import get_cycle_summary
+    from analysis.market_regime import get_market_regime
     from analysis.sector_ranker import rank_sectors
     from data.database import PriceBar, get_session
     from data.universe_stocks import get_active_universe
@@ -37,6 +38,7 @@ except ImportError:  # pragma: no cover
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from analysis.confluence_scorer import score_stock
     from analysis.macro_cycle import get_cycle_summary
+    from analysis.market_regime import get_market_regime
     from analysis.sector_ranker import rank_sectors
     from data.database import PriceBar, get_session
     from data.universe_stocks import get_active_universe
@@ -47,11 +49,19 @@ MIN_BARS = 200
 
 
 def build_market_context() -> dict:
-    """Compute the market-wide context ONCE (sector rankings + macro phase)."""
+    """Compute the market-wide context ONCE (sector rankings + macro phase + regime)."""
     sector_rankings = rank_sectors()
     cycle_summary = get_cycle_summary()
-    print("Market context loaded — sector rankings and macro phase cached.")
-    return {"sector_rankings": sector_rankings, "cycle_summary": cycle_summary}
+    regime = get_market_regime()
+    print(
+        "Market context loaded — sector rankings, macro phase, and "
+        f"market regime ({regime.get('regime', 'Unknown')}) cached."
+    )
+    return {
+        "sector_rankings": sector_rankings,
+        "cycle_summary": cycle_summary,
+        "regime": regime,
+    }
 
 
 def get_scoreable_tickers() -> list:
