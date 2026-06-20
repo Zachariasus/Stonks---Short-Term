@@ -187,13 +187,15 @@ function Snapshot({ stock }) {
 }
 
 // =========================================================================
-// Grade — AI letter grade + confluence engines + position sizing (from /grade).
+// Grade — letter grade + confluence engines + position sizing (from /grade).
+// The letter grade + narrative come from the local rules-based grader by default
+// (no API key); with a key configured the backend serves the AI version instead.
 // =========================================================================
 function GradeSection({ grade, loading, error }) {
   if (loading) {
     return (
       <div className="border border-slate-800 rounded-lg p-4 md:p-6 bg-slate-800/30">
-        <Spinner label="Running the analysis pipeline & AI grade…" />
+        <Spinner label="Running the analysis pipeline & grade…" />
       </div>
     );
   }
@@ -208,10 +210,10 @@ function GradeSection({ grade, loading, error }) {
 
   return (
     <div className="border border-slate-800 rounded-lg p-4 md:p-6 bg-slate-800/30 flex flex-col gap-5">
-      {grade.stub && (
-        <div className="border border-blue-500/50 bg-blue-500/10 rounded-lg p-3 text-blue-300 text-sm">
-          AI letter grade is a stub — add ANTHROPIC_API_KEY to .env to enable it. The quantitative
-          breakdown below is live.
+      {grade.grade_source === "rules" && (
+        <div className="border border-slate-600/60 bg-slate-700/30 rounded-lg p-3 text-slate-300 text-xs">
+          Rules-based grade — computed locally from the signals, no API key needed. Add
+          ANTHROPIC_API_KEY to <code className="text-slate-400">.env</code> for an AI-written narrative.
         </div>
       )}
 
@@ -244,8 +246,8 @@ function GradeSection({ grade, loading, error }) {
         </div>
       </div>
 
-      {/* Bull / bear (only meaningful with a live AI grade) */}
-      {!grade.stub && (grade.bull_case || grade.bear_case) && (
+      {/* Bull / bear — the case for vs. against the setup (in its direction). */}
+      {(grade.bull_case || grade.bear_case) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="border border-green-500/30 rounded-lg p-3 bg-green-500/5">
             <div className="text-xs font-semibold text-green-400 mb-1">BULL CASE</div>
@@ -258,7 +260,7 @@ function GradeSection({ grade, loading, error }) {
         </div>
       )}
 
-      {!grade.stub && grade.key_risks && grade.key_risks.length > 0 && (
+      {grade.key_risks && grade.key_risks.length > 0 && (
         <div>
           <div className="text-xs font-semibold text-slate-400 mb-1">KEY RISKS</div>
           <ul className="list-disc list-inside text-sm text-slate-300">
@@ -269,7 +271,7 @@ function GradeSection({ grade, loading, error }) {
         </div>
       )}
 
-      {!grade.stub && grade.suggested_action && grade.suggested_action !== "—" && (
+      {grade.suggested_action && grade.suggested_action !== "—" && (
         <div className="border border-slate-600 rounded-lg p-3 bg-slate-700/30">
           <div className="text-xs font-semibold text-slate-400 mb-1">SUGGESTED ACTION</div>
           <div className="text-sm text-white">{grade.suggested_action}</div>

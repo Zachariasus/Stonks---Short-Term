@@ -174,10 +174,11 @@ export default function GraderPage() {
       {/* --- Report card --- */}
       {result && !loading && (
         <div className="flex flex-col gap-6">
-          {/* Stub banner */}
-          {result.stub && (
-            <div className="border border-blue-500/50 bg-blue-500/10 rounded-lg p-3 text-blue-300 text-sm">
-              AI grade is a stub — add ANTHROPIC_API_KEY to .env to enable live grading.
+          {/* Grade source note — rules-based by default (no key needed) */}
+          {result.grade_source === "rules" && (
+            <div className="border border-slate-600/60 bg-slate-700/30 rounded-lg p-3 text-slate-300 text-sm">
+              Rules-based grade — computed locally from the signals, no API key needed. Add
+              ANTHROPIC_API_KEY to <code className="text-slate-400">.env</code> for an AI-written narrative.
             </div>
           )}
 

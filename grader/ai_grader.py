@@ -110,17 +110,9 @@ exactly these keys:
 """
 
 
-def _stub_response() -> dict:
-    """Returned when no API key is configured — keeps the pipeline working."""
-    return {
-        "grade": "?",
-        "one_line_verdict": "API key not set",
-        "bull_case": "Set ANTHROPIC_API_KEY in .env to enable AI grading.",
-        "bear_case": "—",
-        "key_risks": [],
-        "suggested_action": "—",
-        "stub": True,
-    }
+def _key_is_set() -> bool:
+    """True only if a real Anthropic key is configured (not missing/placeholder)."""
+    return bool(ANTHROPIC_API_KEY) and ANTHROPIC_API_KEY != "your_key_here"
 
 
 def _parse_json(text: str):
@@ -150,10 +142,16 @@ def _parse_json(text: str):
 
 
 def call_claude_grader(prompt: str) -> dict:
-    """Send the prompt to Claude and parse the JSON grade. Degrades gracefully."""
+    """Send the prompt to Claude and parse the JSON grade. Degrades gracefully.
+
+    Assumes a key is configured (grade_stock only calls this when _key_is_set()).
+    On any failure it returns an api_error dict so the caller can fall back to the
+    rules-based grade.
+    """
     key = ANTHROPIC_API_KEY
-    if not key or key == "your_key_here":
-        return _stub_response()
+    if not _key_is_set():
+        return {"grade": "?", "stub": False, "api_error": True,
+                "one_line_verdict": "No API key configured"}
 
     try:
         import anthropic  # lazy import — only needed when a key is configured
@@ -198,21 +196,239 @@ def call_claude_grader(prompt: str) -> dict:
         }
 
     parsed["stub"] = False
+    parsed["source"] = "ai"
     return parsed
 
 
+# ---------------------------------------------------------------------------
+# Rules-based grade — the keyless DEFAULT.
+#
+# The letter grade is a transparent function of the confluence score + how many
+# engines are firing — exactly the rubric the AI is asked to follow. The
+# narrative (verdict, bull/bear, key risks, action) is assembled deterministically
+# from the same engine signals already computed for the stock. So the grader is
+# fully functional with NO API key and NO cost. Configure a real ANTHROPIC_API_KEY
+# and grade_stock automatically upgrades to the AI-written version instead.
+# ---------------------------------------------------------------------------
+def _letter_grade(total_score, engines_firing) -> str:
+    """A/B/C/D straight from the confluence rubric (see GRADE_RUBRIC)."""
+    if total_score is None:
+        return "?"
+    if total_score >= 70 and (engines_firing or 0) >= 3:
+        return "A"
+    if total_score >= 55:
+        return "B"
+    if total_score >= 40:
+        return "C"
+    return "D"
+
+
+def _join_phrases(phrases, limit=3) -> str:
+    """Join up to `limit` non-empty phrases into a natural ', ' / ', and ' list."""
+    items = [p for p in phrases if p][:limit]
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    return ", ".join(items[:-1]) + ", and " + items[-1]
+
+
+def rule_based_grade(packet: dict) -> dict:
+    """Deterministic grade + narrative from the analysis packet (no API call)."""
+    s1 = packet.get("section_1_identity") or {}
+    s2 = packet.get("section_2_trend") or {}
+    s3 = packet.get("section_3_fundamental") or {}
+    s4 = packet.get("section_4_topdown") or {}
+    s5 = packet.get("section_5_valuation") or {}
+    s6 = packet.get("section_6_confluence") or {}
+
+    total = s6.get("total_score")
+    firing = s6.get("engines_firing")
+    direction = s6.get("direction") or "Long"
+    regime = s6.get("market_regime")
+    is_short = direction == "Short"
+    grade = _letter_grade(total, firing)
+
+    # Signals (each may be None — handled below).
+    stage = s2.get("stage")
+    stage_label = s2.get("stage_label") or (f"Stage {stage}" if stage else "stage n/a")
+    rs = (s2.get("rs_vs_spy") or {}).get("label")
+    vol = (s2.get("volume_profile") or {}).get("label")
+    rev = s3.get("revision_direction")
+    op_margin = s3.get("operating_margin_direction")
+    beat = s3.get("beat_raise_pattern_label")
+    rot = s4.get("sector_rotation_label")
+    val_room = s5.get("valuation_room")
+    upside = s5.get("upside_pct")
+    es = s2.get("entry_signals") or {}
+    days = s3.get("days_to_earnings")
+    earn_date = s3.get("next_earnings_date")
+    ticker = s1.get("ticker") or "This name"
+
+    supporting = []  # the case FOR the setup (in its direction)
+    opposing = []    # the case AGAINST it
+
+    if is_short:
+        if stage == 4:
+            supporting.append("an established Stage 4 downtrend")
+        if rs in ("Weak Laggard", "Laggard"):
+            supporting.append("deeply lagging relative strength")
+        if vol in ("Distribution", "Mild Distribution"):
+            supporting.append("distribution showing in the volume")
+        if rev == "Falling":
+            supporting.append("a falling estimate-revision cycle")
+        if op_margin in ("Compressing", "Consistently Compressing"):
+            supporting.append("compressing operating margins")
+        if beat in ("Chronic Misser", "Mixed"):
+            supporting.append("a weak earnings track record")
+        if rot == "Lagging":
+            supporting.append("a sector the rotation has abandoned")
+        if regime == "Risk-Off":
+            supporting.append("a risk-off tape that favors shorts")
+        if val_room == "Limited — already extended":
+            supporting.append("a still-rich multiple with room to compress")
+        if es.get("breakdown") or es.get("failed_rally"):
+            supporting.append("a short entry triggering now")
+
+        if regime == "Risk-On":
+            opposing.append("a strong-bull tape — shorting against the market's upward drift")
+        if stage != 4:
+            opposing.append(f"no clean Stage 4 downtrend yet ({stage_label})")
+        if rs not in ("Weak Laggard", "Laggard"):
+            opposing.append("relative strength that isn't weak enough")
+        if rot == "Leading":
+            opposing.append("a sector that is actually leading")
+        if not (es.get("breakdown") or es.get("failed_rally")):
+            opposing.append("no short entry signal yet")
+        opposing.append("the short's unbounded-loss asymmetry, carry cost, and squeeze risk")
+    else:
+        if stage == 2:
+            supporting.append("an established Stage 2 uptrend")
+        if rs in ("Strong Leader", "Leader"):
+            supporting.append("relative-strength leadership versus the market")
+        if vol in ("Accumulation", "Mild Accumulation"):
+            supporting.append("volume under accumulation")
+        if rev == "Rising":
+            supporting.append("a rising estimate-revision cycle")
+        if op_margin in ("Expanding", "Consistently Expanding"):
+            supporting.append("expanding operating margins")
+        if beat in ("Beat-and-Raise Cycle", "Consistent Beater"):
+            supporting.append("a beat-and-raise track record")
+        if rot == "Leading":
+            supporting.append("a sector the rotation favors")
+        if regime == "Risk-On":
+            supporting.append("a risk-on market backdrop")
+        if isinstance(val_room, str) and val_room.startswith(("Yes", "Partial")):
+            supporting.append("valuation room to re-rate")
+        if isinstance(upside, (int, float)) and upside > 0:
+            supporting.append(f"about {upside:.0f}% upside to the target")
+        if es.get("breakout") or es.get("pullback"):
+            supporting.append("a clean long entry triggering now")
+
+        if stage != 2:
+            opposing.append(f"not yet a Stage 2 trend ({stage_label})")
+        if rs in ("Laggard", "Weak Laggard"):
+            opposing.append("lagging relative strength")
+        if vol in ("Distribution", "Mild Distribution"):
+            opposing.append("distribution in the volume")
+        if rev == "Falling":
+            opposing.append("a falling estimate-revision cycle")
+        if op_margin in ("Compressing", "Consistently Compressing"):
+            opposing.append("compressing margins")
+        if beat == "Chronic Misser":
+            opposing.append("a history of earnings misses")
+        if rot == "Lagging":
+            opposing.append("an out-of-favor sector")
+        if regime == "Risk-Off":
+            opposing.append("a risk-off market working against the trend")
+        if val_room == "Limited — already extended":
+            opposing.append("an already-extended valuation")
+        if isinstance(upside, (int, float)) and upside <= 0:
+            opposing.append("a valuation target below the current price")
+        if not (es.get("breakout") or es.get("pullback")):
+            opposing.append("no clean entry signal yet")
+
+    bull = _join_phrases(supporting)
+    bear = _join_phrases(opposing)
+    bull_case = f"{ticker} has {bull}." if bull else "No strongly supportive signals stand out right now."
+    bear_case = f"The case against: {bear}." if bear else "No major red flags stand out."
+
+    # Key risks (2–3).
+    risks = []
+    # Only an UPCOMING report (0–45 days out) is a gap risk; a negative value is a
+    # stale past date, so skip it.
+    if isinstance(days, (int, float)) and 0 <= days <= 45:
+        risks.append(
+            f"Earnings ~{int(days)}d out{f' ({earn_date})' if earn_date else ''} — a two-sided gap through the hold."
+        )
+    if is_short and regime == "Risk-On":
+        risks.append("Shorting in a strong-bull tape — market drift and squeeze risk work against you; size small, stop above.")
+    if not is_short and regime == "Risk-Off":
+        risks.append("Buying into a risk-off market — the trend filter is against the position.")
+    if isinstance(firing, int) and firing < 2:
+        risks.append(f"Only {firing}/4 engines firing — thin confirmation.")
+    if is_short and not any("asymmetry" in r for r in risks):
+        risks.append("Short asymmetry: unbounded loss, carry, and squeeze risk — honor the stop without exception.")
+    if not risks:
+        risks.append("Standard market risk; re-test the thesis at each earnings print.")
+    risks = risks[:3]
+
+    dir_word = "short" if is_short else "long"
+    verdict = {
+        "A": f"High-conviction {dir_word} — signals aligned (score {total}/100).",
+        "B": f"Solid {dir_word} with caveats — wait for confirmation (score {total}/100).",
+        "C": f"Mixed, early {dir_word} signals — watchlist only (score {total}/100).",
+        "D": f"Weak {dir_word} setup — pass (score {total}/100).",
+        "?": "Insufficient data to grade.",
+    }.get(grade, "Insufficient data to grade.")
+
+    if grade == "A":
+        action = (
+            "Actionable but defensive — size small, hard stop above, enter on a breakdown or failed rally."
+            if is_short else
+            "Actionable — size per the card and enter on a breakout or a pullback to the rising 50-day."
+        )
+    elif grade == "B":
+        action = "Enter only on a clean confirmation signal; size conservatively. Worth watching."
+    elif grade == "C":
+        action = "Watchlist only — the thesis is forming but not confirmed. No action yet."
+    elif grade == "D":
+        action = "Pass — or keep on the short watchlist for a weaker tape." if is_short else "Pass."
+    else:
+        action = "—"
+
+    return {
+        "grade": grade,
+        "one_line_verdict": verdict,
+        "bull_case": bull_case,
+        "bear_case": bear_case,
+        "key_risks": risks,
+        "suggested_action": action,
+        "source": "rules",
+        "stub": False,
+    }
+
+
 def grade_stock(ticker: str) -> dict:
-    """Run the full pipeline, grade it with Claude, and return the combined result."""
+    """Run the full pipeline and grade it.
+
+    Default is the keyless RULES-BASED grade. If a real ANTHROPIC_API_KEY is set,
+    use the AI grade instead — and fall back to the rules grade if the AI call
+    fails or returns something unusable, so a grade always comes back.
+    """
     ticker = ticker.strip().upper()
     packet = run_full_analysis(ticker)
 
-    # format_analysis_report prints AND returns the string; we only want the
-    # string here (the report itself is the grade card's job, not this step).
-    with contextlib.redirect_stdout(io.StringIO()):
-        report = format_analysis_report(packet)
-
-    prompt = build_grading_prompt(packet, report)
-    grade = call_claude_grader(prompt)
+    if _key_is_set():
+        # format_analysis_report prints AND returns the string; we only want the
+        # string here (the report itself is the grade card's job, not this step).
+        with contextlib.redirect_stdout(io.StringIO()):
+            report = format_analysis_report(packet)
+        grade = call_claude_grader(build_grading_prompt(packet, report))
+        if grade.get("api_error") or grade.get("parse_error") or grade.get("grade") in (None, "?"):
+            grade = rule_based_grade(packet)  # AI unavailable/unusable → deterministic fallback
+    else:
+        grade = rule_based_grade(packet)
 
     s1 = packet.get("section_1_identity", {})
     s6 = packet.get("section_6_confluence", {})
@@ -237,6 +453,8 @@ def grade_stock(ticker: str) -> dict:
         "engine_3_pts": s6.get("engine_3_pts"),
         "engine_4_pts": s6.get("engine_4_pts"),
         "engines_firing": s6.get("engines_firing"),
+        # "rules" (keyless default) or "ai" (when a key is configured).
+        "grade_source": grade.get("source", "rules"),
         "stub": grade.get("stub", False),
         "parse_error": grade.get("parse_error", False),
         "api_error": grade.get("api_error", False),
@@ -295,5 +513,8 @@ def print_grade_card(grade_dict: dict) -> dict:
 if __name__ == "__main__":
     result = grade_stock("AAPL")
     print_grade_card(result)
-    if result.get("stub"):
-        print("\nℹ️  Stub response shown — add a real ANTHROPIC_API_KEY to .env to enable live AI grading.")
+    src = result.get("grade_source")
+    if src == "rules":
+        print("\nℹ️  Rules-based grade (no API key). Add a real ANTHROPIC_API_KEY to .env for the AI-written version.")
+    else:
+        print("\n✅ AI grade (ANTHROPIC_API_KEY configured).")

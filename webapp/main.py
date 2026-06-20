@@ -197,6 +197,7 @@ class GradeResponse(BaseModel):
     next_earnings_date: Optional[date] = None
     days_to_earnings: Optional[int] = None
     earnings_flag: Optional[str] = None
+    grade_source: Optional[str] = None  # "rules" (keyless default) or "ai"
     stub: bool = False
 
 
@@ -401,6 +402,7 @@ def grade(req: GradeRequest):
         next_earnings_date=earnings.get("next_earnings_date"),
         days_to_earnings=earnings.get("days_to_earnings"),
         earnings_flag=earnings.get("flag"),
+        grade_source=grade_result.get("grade_source"),
         stub=grade_result.get("stub", False),
     )
 
