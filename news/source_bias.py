@@ -22,6 +22,25 @@ from urllib.parse import urlparse
 
 _DATA_PATH = Path(__file__).resolve().parent / "sources_bias.json"
 
+# Aggregators re-host other outlets' stories (e.g. a WSJ article served from
+# finance.yahoo.com — common in the free yfinance feed). The bias guide says tag
+# by the ORIGINAL source, so when a URL is one of these AND we know the real
+# provider name, we prefer the provider's bias over the aggregator's.
+_AGGREGATOR_DOMAINS = {
+    "finance.yahoo.com", "yahoo.com", "news.yahoo.com",
+    "news.google.com", "google.com",
+    "msn.com", "apple.news", "flipboard.com", "smartnews.com",
+}
+
+
+def _norm_name(name) -> str:
+    """Lowercased outlet name with a leading 'the ' and stray punctuation stripped,
+    so 'The Wall Street Journal' matches the map's 'Wall Street Journal'."""
+    n = (name or "").strip().lower()
+    if n.startswith("the "):
+        n = n[4:]
+    return n.strip(" .")
+
 
 @lru_cache(maxsize=1)
 def _load():
@@ -34,7 +53,7 @@ def _load():
     for outlet in outlets:
         for dom in outlet.get("domains", []):
             by_domain[dom.lower()] = outlet
-        by_name[outlet["name"].lower()] = outlet
+        by_name[_norm_name(outlet["name"])] = outlet
     return outlets, by_domain, by_name
 
 
@@ -56,16 +75,26 @@ def lookup(url=None, source_name=None) -> dict:
     _outlets, by_domain, by_name = _load()
 
     host = _host(url) if url else ""
-    outlet = None
+    domain_outlet = None
     if host:
-        outlet = by_domain.get(host)
-        if outlet is None:  # sub-domain (e.g. markets.businessinsider.com → businessinsider.com)
+        domain_outlet = by_domain.get(host)
+        if domain_outlet is None:  # sub-domain (e.g. markets.businessinsider.com → businessinsider.com)
             for dom, o in by_domain.items():
                 if host == dom or host.endswith("." + dom):
-                    outlet = o
+                    domain_outlet = o
                     break
-    if outlet is None and source_name:
-        outlet = by_name.get(source_name.strip().lower())
+
+    name_outlet = by_name.get(_norm_name(source_name)) if source_name else None
+
+    # If the URL is an aggregator (Yahoo/Google/MSN) but we know the real provider
+    # name, tag by the provider; otherwise prefer the domain match.
+    host_is_aggregator = bool(host) and (
+        host in _AGGREGATOR_DOMAINS or any(host.endswith("." + d) for d in _AGGREGATOR_DOMAINS)
+    )
+    if host_is_aggregator and name_outlet is not None:
+        outlet = name_outlet
+    else:
+        outlet = domain_outlet or name_outlet
 
     if outlet is None:
         return {

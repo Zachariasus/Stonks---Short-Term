@@ -91,8 +91,84 @@ def _parse_published(iso_str):
         return None
 
 
+def _key_is_set() -> bool:
+    """True only if a real NewsAPI key is configured (not missing/placeholder)."""
+    return bool(NEWS_API_KEY) and NEWS_API_KEY != "your_key_here"
+
+
+def _parse_epoch(ts):
+    """Parse a Unix epoch seconds value → naive UTC datetime (or None)."""
+    try:
+        return datetime.fromtimestamp(int(ts), tz=timezone.utc).replace(tzinfo=None)
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def fetch_news_yfinance(ticker: str, max_articles: int = 20) -> list:
+    """Fetch recent headlines for a ticker from yfinance — FREE, no API key.
+
+    yfinance exposes Yahoo Finance's per-ticker news feed (real headlines, real
+    publishers, working links). Handles both the new nested shape
+    ({'content': {...}}) and the older flat shape. Returns [] on any failure.
+    """
+    ticker = ticker.strip().upper()
+    try:
+        import yfinance as yf  # already a project dependency
+
+        raw = yf.Ticker(ticker).news or []
+    except Exception as err:  # noqa: BLE001 - network / yfinance internals
+        print(f"⚠️  fetch_news_yfinance: yfinance news failed for {ticker} — {err}")
+        return []
+
+    articles = []
+    for item in raw[:max_articles]:
+        # New yfinance nests fields under 'content'; the old shape is flat.
+        c = item.get("content") or item
+        url = (
+            (c.get("canonicalUrl") or {}).get("url")
+            or (c.get("clickThroughUrl") or {}).get("url")
+            or c.get("link")  # legacy flat shape
+        )
+        if not url:
+            continue
+        # Publisher name: new = provider.displayName, legacy = publisher.
+        source = (c.get("provider") or {}).get("displayName") or c.get("publisher")
+        # Date: new = ISO 'pubDate'; legacy = epoch 'providerPublishTime'.
+        pub = c.get("pubDate") or c.get("displayTime")
+        published_at = (
+            _parse_published(pub) if isinstance(pub, str)
+            else _parse_epoch(c.get("providerPublishTime"))
+        )
+        raw_text = c.get("summary") or c.get("description") or ""
+        articles.append(
+            {
+                "ticker": ticker,
+                "url": url,
+                "title": c.get("title"),
+                "source": source,
+                "published_at": published_at,
+                "content_snippet": raw_text[:200] if raw_text else None,
+            }
+        )
+    return articles
+
+
 def fetch_news(ticker: str, days_back: int = 7, max_articles: int = 20) -> list:
-    """Fetch recent articles for a ticker from NewsAPI. Returns [] on any failure.
+    """Fetch recent articles for a ticker. Returns [] on any failure (never None).
+
+    DEFAULT is the FREE yfinance source — no key required. If a real NEWS_API_KEY
+    is configured, use NewsAPI instead (broader/older coverage), falling back to
+    yfinance if NewsAPI yields nothing. Mirrors the grader's keyless-by-default,
+    API-as-an-upgrade pattern.
+    """
+    if not _key_is_set():
+        return fetch_news_yfinance(ticker, max_articles=max_articles)
+    articles = _fetch_newsapi(ticker, days_back=days_back, max_articles=max_articles)
+    return articles if articles else fetch_news_yfinance(ticker, max_articles=max_articles)
+
+
+def _fetch_newsapi(ticker: str, days_back: int = 7, max_articles: int = 20) -> list:
+    """Fetch recent articles for a ticker from NewsAPI (the opt-in upgrade path).
 
     Never returns None and never raises — a missing/placeholder key, a NewsAPI
     error (bad key, rate limit), invalid JSON, or a network error all degrade to
@@ -102,8 +178,7 @@ def fetch_news(ticker: str, days_back: int = 7, max_articles: int = 20) -> list:
     key = NEWS_API_KEY
 
     # Graceful no-op when the key isn't configured yet.
-    if not key or key == "your_key_here":
-        print(f"⚠️  fetch_news: NEWS_API_KEY not set — skipping news fetch for {ticker}.")
+    if not _key_is_set():
         return []
 
     from_date = (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y-%m-%d")

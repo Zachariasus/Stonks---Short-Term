@@ -24,7 +24,7 @@ MIRRORS THE PHASE 2 SCHEDULER
 
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import schedule
 
@@ -32,6 +32,7 @@ import schedule
 # (and inline runs with PYTHONPATH=<project root>).
 try:
     from data.config import NEWS_API_KEY
+    from data.database import NewsArticle, StockScreen, get_session
     from news.news_fetcher import fetch_and_store_news
     from news.relevance_scorer import score_and_update_articles
     from screener.flag_generator import get_active_flags
@@ -40,6 +41,7 @@ except ImportError:  # pragma: no cover
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from data.config import NEWS_API_KEY
+    from data.database import NewsArticle, StockScreen, get_session
     from news.news_fetcher import fetch_and_store_news
     from news.relevance_scorer import score_and_update_articles
     from screener.flag_generator import get_active_flags
@@ -53,26 +55,76 @@ HOURLY_DAYS_BACK = 1
 FALLBACK_TICKERS = ["AAPL", "SPY"]
 
 
+def top_screened_tickers(limit=12) -> list:
+    """Highest-scoring screened tickers — the news fallback when there are no flags.
+
+    With the FREE yfinance source there's no per-request budget to ration, so when
+    nothing is flagged we still surface news for the names the screener likes most.
+    """
+    session = get_session()
+    try:
+        rows = (
+            session.query(StockScreen)
+            .filter(StockScreen.score.isnot(None))
+            .order_by(StockScreen.score.desc())
+            .limit(limit)
+            .all()
+        )
+        return [r.ticker for r in rows]
+    finally:
+        session.close()
+
+
 def get_news_tickers():
     """Return (tickers, active_flag_count) — the tickers whose news we refresh.
 
-    News follows the flags: we only refresh news for tickers the system has
-    actively flagged. Falls back to a tiny default list if there are no active
-    flags yet, so the scheduler always has something to do during development.
+    News follows the flags. When there are no active flags, fall back to the
+    top-scoring screened names (then a tiny static list) so the feed is never empty.
     """
     flags = get_active_flags()
     count = len(flags)
     tickers = sorted({flag.ticker for flag in flags})
 
     if not tickers:
-        tickers = list(FALLBACK_TICKERS)
+        tickers = top_screened_tickers(12) or list(FALLBACK_TICKERS)
         display = "[" + ", ".join(tickers) + "]"
-        print(f"News refresh targets: {count} active flags → {display} (fallback — no active flags)")
+        print(f"News refresh targets: {count} active flags → top-screened {display} (no active flags)")
     else:
         display = "[" + ", ".join(tickers) + "]"
         print(f"News refresh targets: {count} active flags → {display}")
 
     return tickers, count
+
+
+def ensure_ticker_news(ticker, max_age_hours=12, days_back=7) -> dict:
+    """Ensure a ticker has reasonably fresh stored news; fetch (free) if stale/missing.
+
+    Lets the web app populate news ON DEMAND — a ticker's news appears even with
+    no scheduler run and no API key. One yfinance call, throttled by freshness
+    (skips the fetch if we stored news within the last `max_age_hours`).
+    """
+    ticker = ticker.strip().upper()
+    session = get_session()
+    try:
+        newest = (
+            session.query(NewsArticle.fetched_at)
+            .filter(NewsArticle.ticker == ticker)
+            .order_by(NewsArticle.fetched_at.desc())
+            .first()
+        )
+    finally:
+        session.close()
+
+    if newest and newest[0] and (datetime.utcnow() - newest[0]) < timedelta(hours=max_age_hours):
+        return {"ticker": ticker, "fetched": False}  # already fresh
+
+    try:
+        fetch_and_store_news(ticker, days_back=days_back)
+        score_and_update_articles(ticker)
+        return {"ticker": ticker, "fetched": True}
+    except Exception as err:  # noqa: BLE001 - a read-path fetch must never 500 the page
+        print(f"⚠️  ensure_ticker_news: {ticker} — {err}")
+        return {"ticker": ticker, "fetched": False, "error": str(err)}
 
 
 def run_news_refresh(days_back=HOURLY_DAYS_BACK, tickers=None) -> dict:
@@ -161,7 +213,8 @@ if __name__ == "__main__":
 
         # --- Self-test: confirm graceful behavior + clean wiring ---
         if not NEWS_API_KEY or NEWS_API_KEY == "your_key_here":
-            print("\nSet NEWS_API_KEY in .env to activate live news.")
+            print("\nUsing the FREE yfinance news source (no NEWS_API_KEY needed). "
+                  "Add a NEWS_API_KEY in .env for broader/older coverage.")
         print(
             "Self-test OK — scheduler wired cleanly: "
             "get_news_tickers → fetch_and_store_news → score_and_update_articles."

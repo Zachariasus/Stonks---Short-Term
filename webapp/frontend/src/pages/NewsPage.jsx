@@ -220,7 +220,7 @@ export default function NewsPage() {
       {!loading && !error && articles.length === 0 && (
         <div className="p-8 text-center text-slate-400 border border-slate-800 rounded">
           {isHome
-            ? "No stored headlines yet — add a NEWS_API_KEY and run the news scheduler to populate the watchlist feed."
+            ? "No headlines yet — they load automatically from the free source. Give it a moment and refresh."
             : "No headlines match that search."}
         </div>
       )}

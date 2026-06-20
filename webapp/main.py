@@ -41,6 +41,7 @@ from data.database import init_db  # noqa: E402
 from data.db_reader import get_price_bars  # noqa: E402
 from grader.ai_grader import grade_stock  # noqa: E402
 from grader.position_sizer import calculate_full_risk_profile  # noqa: E402
+from news.news_scheduler import ensure_ticker_news, top_screened_tickers  # noqa: E402
 from news.relevance_scorer import get_relevant_news, search_news  # noqa: E402
 from news.source_bias import lookup as bias_lookup  # noqa: E402
 from screener.flag_generator import get_active_flags, get_stocks_overview  # noqa: E402
@@ -289,28 +290,34 @@ def _enrich_news(article: dict) -> dict:
 
 
 @app.get("/watchlist-news", response_model=List[NewsArticleResponse])
-def watchlist_news(limit: int = 40, per_ticker: int = 8, min_relevance: int = 30):
-    """Home feed: news for the active flagged stocks, most-recently-flagged first.
+def watchlist_news(limit: int = 40, per_ticker: int = 8, min_relevance: int = 15):
+    """Home feed: news for the watchlist, freshest names first.
 
-    Iterates flagged tickers by flag recency (stage_start_date, then flagged_date)
-    and collects each one's relevant news, deduped by URL — so the freshest flags
-    surface at the top of the feed.
+    Flagged tickers lead (by flag recency); when nothing is flagged it falls back
+    to the top-scoring screened names so the feed is never empty. News is fetched
+    on demand from the FREE yfinance source (throttled), so no API key or
+    scheduler run is required.
     """
-    flags = get_active_flags()
+    # Flagged tickers lead (freshest flag first); then top up with the top-scoring
+    # screened names so the feed is full even with few or no flags.
     flags_sorted = sorted(
-        flags,
+        get_active_flags(),
         key=lambda f: (f.stage_start_date or f.flagged_date or date.min, f.flagged_date or date.min),
         reverse=True,
     )
+    tickers = []
+    for f in flags_sorted:
+        if f.ticker not in tickers:
+            tickers.append(f.ticker)
+    for t in top_screened_tickers(12):
+        if t not in tickers:
+            tickers.append(t)
 
     out = []
     seen_urls = set()
-    seen_tickers = set()
-    for f in flags_sorted:
-        if f.ticker in seen_tickers:
-            continue
-        seen_tickers.add(f.ticker)
-        for a in get_relevant_news(f.ticker, min_relevance=min_relevance, limit=per_ticker):
+    for t in tickers:
+        ensure_ticker_news(t)  # populate on demand (free, 12h-throttled)
+        for a in get_relevant_news(t, min_relevance=min_relevance, limit=per_ticker):
             if a.get("url") in seen_urls:
                 continue
             seen_urls.add(a["url"])
@@ -325,14 +332,26 @@ def watchlist_news(limit: int = 40, per_ticker: int = 8, min_relevance: int = 30
 @app.get("/news-search", response_model=List[NewsArticleResponse])
 def news_search(q: str = "", limit: int = 30):
     """Broad headline search by company name, ticker, or keyword ([] if none)."""
+    q = (q or "").strip()
+    # If the query is a plausible ticker, populate it on demand (free) so a search
+    # for a name we haven't fetched yet still returns real news.
+    if q and len(q) <= 5 and q.isalpha():
+        ensure_ticker_news(q.upper())
     articles = search_news(q, limit=limit)
     return [NewsArticleResponse.model_validate(_enrich_news(a)) for a in articles]
 
 
 @app.get("/news/{ticker}", response_model=List[NewsArticleResponse])
-def get_news(ticker: str, limit: int = 20, min_relevance: int = 40):
-    """Relevance-filtered news for a ticker, newest first ([] if none — never 404)."""
+def get_news(ticker: str, limit: int = 20, min_relevance: int = 15):
+    """Relevance-filtered news for a ticker, newest first ([] if none — never 404).
+
+    Populates the ticker's news on demand from the FREE yfinance source (throttled)
+    so a stock profile shows real headlines with no API key and no scheduler run.
+    The threshold is modest because yfinance's feed is already ticker-scoped by
+    Yahoo — it just drops the occasional unrelated "you might also like" filler.
+    """
     ticker = ticker.strip().upper()
+    ensure_ticker_news(ticker)
     articles = get_relevant_news(ticker, min_relevance=min_relevance, limit=limit)
     return [NewsArticleResponse.model_validate(_enrich_news(a)) for a in articles]
 
